@@ -4,6 +4,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.modules.roles.models import UsuarioRol  # noqa: F401
 
 
 class Usuario(Base):
