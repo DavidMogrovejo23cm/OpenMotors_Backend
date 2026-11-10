@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Databases & Local Environment
+*.sqlite
+*.sqlite3
+*.db
+.env
+.env.local
+
+# Local uploads & generated metrics
+static/uploads/*
+!static/uploads/.gitkeep
+metrics-reports/*.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store

@@ -1,0 +1,576 @@
+{
+  "metadata" : {
+    "timezone" : "America/Guayaquil",
+    "hostname" : "DESKTOP-AMT4TK3",
+    "label" : "midday",
+    "report_type" : "incremental_snapshot",
+    "generated_at" : "2026-10-23T17:00:00.002076800Z",
+    "application_name" : "GMotors",
+    "application_version" : "1.0.0",
+    "server_uptime_seconds" : 2011
+  },
+  "period" : {
+    "date" : "2026-10-23",
+    "start_time" : "2026-10-23T05:00:00Z",
+    "end_time" : "2026-10-23T17:00:00.006630800Z",
+    "duration_seconds" : 43200
+  },
+  "notes" : [ ],
+  "schema_version" : "1.0",
+  "traffic_summary" : {
+    "total_requests" : 146,
+    "successful_requests" : 145,
+    "error_requests" : 1,
+    "error_rate" : 0.00684931506849315,
+    "requests_per_second_avg" : 0.07257312487945902,
+    "requests_per_second_peak" : null
+  },
+  "endpoint_traffic" : [ {
+    "uri" : "/api/motos",
+    "method" : "GET",
+    "requests" : 17,
+    "latency" : {
+      "avg_ms" : 17.933929411764705,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 17,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/productos",
+    "method" : "GET",
+    "requests" : 17,
+    "latency" : {
+      "avg_ms" : 11.487135294117646,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 17,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/usuarios",
+    "method" : "GET",
+    "requests" : 13,
+    "latency" : {
+      "avg_ms" : 17.93443076923077,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 13,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/registros",
+    "method" : "GET",
+    "requests" : 9,
+    "latency" : {
+      "avg_ms" : 27.56721111111111,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 9,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/facturas",
+    "method" : "GET",
+    "requests" : 7,
+    "latency" : {
+      "avg_ms" : 13.148942857142856,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 7,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/combustible",
+    "method" : "GET",
+    "requests" : 7,
+    "latency" : {
+      "avg_ms" : 15.443257142857144,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 7,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/motos",
+    "method" : "OPTIONS",
+    "requests" : 6,
+    "latency" : {
+      "avg_ms" : 2.2347333333333332,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 6,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/productos",
+    "method" : "OPTIONS",
+    "requests" : 6,
+    "latency" : {
+      "avg_ms" : 2.053733333333333,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 6,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/registros/resumen",
+    "method" : "GET",
+    "requests" : 6,
+    "latency" : {
+      "avg_ms" : 40.688516666666665,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 6,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/usuarios/login",
+    "method" : "POST",
+    "requests" : 6,
+    "latency" : {
+      "avg_ms" : 184.2603333333333,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 5,
+    "error_requests" : 1,
+    "error_rate" : 0.16666666666666666,
+    "errors_by_status" : {
+      "401" : 1
+    }
+  }, {
+    "uri" : "/api/proveedores-contactos",
+    "method" : "GET",
+    "requests" : 6,
+    "latency" : {
+      "avg_ms" : 8.665183333333333,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 6,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/pagos-empleado",
+    "method" : "GET",
+    "requests" : 5,
+    "latency" : {
+      "avg_ms" : 8.74228,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 5,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/health",
+    "method" : "GET",
+    "requests" : 4,
+    "latency" : {
+      "avg_ms" : 44.15055,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 4,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/registros/resumen",
+    "method" : "OPTIONS",
+    "requests" : 4,
+    "latency" : {
+      "avg_ms" : 2.1165,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 4,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/usuarios/{id}",
+    "method" : "GET",
+    "requests" : 3,
+    "latency" : {
+      "avg_ms" : 20.772266666666667,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 3,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/usuarios/{id}",
+    "method" : "OPTIONS",
+    "requests" : 3,
+    "latency" : {
+      "avg_ms" : 1.6886,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 3,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/combustible",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 1.6439,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/registros",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 2.97585,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/usuarios",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 1.9355,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/tipos",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 0.8958,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/facturas",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 1.5363,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/tipos",
+    "method" : "GET",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 11.64825,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/health",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 1.79245,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/pagos-empleado",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 1.89225,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/rol",
+    "method" : "GET",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 8.86895,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/categorias",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 1.0772,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/proveedores-contactos",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 0.9197,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/categorias",
+    "method" : "GET",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 10.87355,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/rol",
+    "method" : "OPTIONS",
+    "requests" : 2,
+    "latency" : {
+      "avg_ms" : 0.6475,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 2,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  }, {
+    "uri" : "/api/usuarios/login",
+    "method" : "OPTIONS",
+    "requests" : 1,
+    "latency" : {
+      "avg_ms" : 4.6411,
+      "min_ms" : null,
+      "max_ms" : 0.0,
+      "p50_ms" : 0.0,
+      "p95_ms" : 0.0,
+      "p99_ms" : 0.0
+    },
+    "successful_requests" : 1,
+    "error_requests" : 0,
+    "error_rate" : 0.0,
+    "errors_by_status" : { }
+  } ],
+  "jvm_stats" : {
+    "memory" : {
+      "heap_used_avg_mb" : 67.99169921875,
+      "heap_used_peak_mb" : 67.99169921875,
+      "heap_max_mb" : 8096.0,
+      "heap_committed_mb" : 8.0,
+      "non_heap_used_avg_mb" : 19.978271484375,
+      "non_heap_used_peak_mb" : 19.978271484375
+    },
+    "threads" : {
+      "live_avg" : 33,
+      "live_peak" : 33,
+      "daemon_avg" : 28,
+      "started_total" : null
+    },
+    "classes" : {
+      "loaded" : 19931,
+      "unloaded" : 0
+    },
+    "garbage_collection" : {
+      "young_generation" : {
+        "count" : 3,
+        "total_time_ms" : 71,
+        "avg_time_ms" : 23.666666666666668
+      },
+      "old_generation" : {
+        "count" : 0,
+        "total_time_ms" : 0,
+        "avg_time_ms" : 0.0
+      }
+    }
+  },
+  "system_health" : {
+    "components" : { },
+    "overall_status" : "UP",
+    "uptime_seconds" : 0,
+    "uptime_human" : null
+  },
+  "top_errors" : [ {
+    "endpoint" : "/api/usuarios/login",
+    "method" : "POST",
+    "status" : 401,
+    "count" : 1,
+    "percentage" : 100.0
+  } ],
+  "performance_summary" : {
+    "fastest_endpoint" : {
+      "uri" : "/api/rol",
+      "method" : "OPTIONS",
+      "requests" : null,
+      "avg_latency_ms" : 0.6475
+    },
+    "slowest_endpoint" : {
+      "uri" : "/api/usuarios/login",
+      "method" : "POST",
+      "requests" : null,
+      "avg_latency_ms" : 184.2603333333333
+    },
+    "most_used_endpoint" : {
+      "uri" : "/api/motos",
+      "method" : "GET",
+      "requests" : 17,
+      "avg_latency_ms" : null
+    }
+  }
+}
