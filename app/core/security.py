@@ -7,17 +7,8 @@ from app.core.config import settings
 
 
 def get_signing_key() -> bytes:
-    """
-    Compatible con la lógica de JwtUtil.java:
-    Si la clave tiene menos de 64 bytes, la rellena con ceros hasta 64 bytes
-    para mantener compatibilidad exacta con tokens firmados previamente.
-    """
-    key_bytes = settings.JWT_SECRET.encode("utf-8")
-    if len(key_bytes) < 64:
-        padded = bytearray(64)
-        padded[: len(key_bytes)] = key_bytes
-        return bytes(padded)
-    return key_bytes
+    """Devuelve la clave de firma configurada exclusivamente por el entorno."""
+    return settings.JWT_SECRET.encode("utf-8")
 
 
 def is_bcrypt_hash(value: Optional[str]) -> bool:
@@ -35,14 +26,9 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: Optional[str]) -> bool:
-    """
-    Verifica una contraseña contra su hash BCrypt.
-    También soporta el flujo de login Google determinista (`gm_google_...`).
-    """
+    """Verifica una contraseña exclusivamente contra su hash BCrypt."""
     if not plain_password:
         return False
-    if plain_password.startswith("gm_google_"):
-        return True
     if not hashed_password:
         return False
     try:
@@ -77,16 +63,11 @@ def generar_token(correo: str) -> str:
 
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """Decodifica y valida el token JWT."""
-    for key in (get_signing_key(), settings.JWT_SECRET.encode("utf-8")):
-        try:
-            decoded = jwt.decode(token, key, algorithms=["HS256"])
-            if isinstance(decoded, dict):
-                return decoded
-        except jwt.ExpiredSignatureError:
-            return None
-        except Exception:
-            continue
-    return None
+    try:
+        decoded = jwt.decode(token, get_signing_key(), algorithms=["HS256"])
+        return decoded if isinstance(decoded, dict) else None
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
 
 
 def validar_token(token: str) -> Optional[str]:

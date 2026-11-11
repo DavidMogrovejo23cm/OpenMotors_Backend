@@ -5,14 +5,40 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.exceptions import EntityNotFoundError
-from app.modules.taller.schemas import TipoCreate, RegistroCreate, DiagnosticoCreate
-from app.modules.taller.service import TipoService, RegistroService, DiagnosticoService
+from app.modules.taller.schemas import (
+    TipoCreate,
+    RegistroCreate,
+    DiagnosticoCreate,
+    RecepcionCreate,
+    RecepcionUpdate,
+    PresupuestoCreate,
+    PresupuestoDecisionRequest,
+    BitacoraReparacionCreate,
+    DanoAdicionalCreate,
+    DanoAdicionalDecisionRequest,
+    ControlCalidadCreate,
+    EntregaVehiculoCreate,
+)
+from app.modules.taller.service import (
+    TipoService,
+    RegistroService,
+    DiagnosticoService,
+    RecepcionService,
+    PresupuestoService,
+    ReparacionService,
+    EntregaService,
+)
 from app.modules.facturacion.service import DetalleFacturaService
 from app.shared.ocr_service import ocr_service
+from app.shared.storage_service import storage_service
 
 tipos_router = APIRouter(prefix="/api/tipos", tags=["Tipos de Servicio"])
 registros_router = APIRouter(prefix="/api/registros", tags=["Registros de Taller"])
 diagnosticos_router = APIRouter(prefix="/api/diagnosticos", tags=["Diagnósticos Mecánicos"])
+recepciones_router = APIRouter(prefix="/api/recepciones", tags=["Hojas de Recepción"])
+presupuestos_router = APIRouter(prefix="/api/presupuestos", tags=["Presupuestos de Taller"])
+reparaciones_router = APIRouter(prefix="/api/reparaciones", tags=["Fase C: Reparación y Control de Calidad"])
+entregas_router = APIRouter(prefix="/api/entregas", tags=["Fase E: Entrega de Vehículo - Proceso 15"])
 
 
 # ==========================================
@@ -197,16 +223,29 @@ def obtener_registro(id_registro: int, db: Session = Depends(get_db)):
 # DIAGNÓSTICOS (/api/diagnosticos)
 # ==========================================
 
+@diagnosticos_router.get("/plantilla-8-sistemas")
+def obtener_plantilla_8_sistemas():
+    """Retorna los 8 sistemas del auto con sus puntos de inspección sugeridos (Proceso 3)."""
+    return DiagnosticoService.plantilla_8_sistemas()
+
+
 @diagnosticos_router.post("", status_code=status.HTTP_201_CREATED)
 @diagnosticos_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def crear_diagnostico(payload: DiagnosticoCreate, db: Session = Depends(get_db)):
+    """Registra la revisión de los 8 sistemas, códigos DTC del escáner y problemas encontrados."""
     diag = DiagnosticoService.crear(db, payload)
     return diag.to_dict()
 
 
-@diagnosticos_router.get("/moto/{id_moto}")
-def listar_diagnosticos_por_moto(id_moto: int, db: Session = Depends(get_db)):
-    diags = DiagnosticoService.listar_por_moto(db, id_moto)
+@diagnosticos_router.get("/registro/{id_registro}")
+def listar_diagnosticos_por_registro(id_registro: int, db: Session = Depends(get_db)):
+    diags = DiagnosticoService.listar_por_registro(db, id_registro)
+    return [d.to_dict() for d in diags]
+
+
+@diagnosticos_router.get("/vehiculo/{id_vehiculo}")
+def listar_diagnosticos_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
+    diags = DiagnosticoService.listar_por_vehiculo(db, id_vehiculo)
     return [d.to_dict() for d in diags]
 
 
@@ -223,4 +262,246 @@ def obtener_diagnostico(id_diagnostico: int, db: Session = Depends(get_db)):
         return diag.to_dict()
     except EntityNotFoundError:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+
+@diagnosticos_router.post("/fotos-evidencia")
+def subir_foto_evidencia_diagnostico(
+    archivo: UploadFile = File(...),
+    sistema: Optional[str] = Query(default="GENERAL"),
+):
+    """Sube foto de evidencia de una pieza dañada o problema encontrado durante la inspección."""
+    if not archivo or not archivo.filename:
+        return JSONResponse(status_code=400, content={"error": "Archivo no proporcionado"})
+    prefix = f"diag_{sistema.lower()}" if sistema else "diag"
+    url = storage_service.upload_file(archivo, "diagnosticos", prefix)
+    return {"url": url, "sistema": sistema}
+
+
+# ==========================================
+# HOJAS DE RECEPCIÓN (/api/recepciones)
+# ==========================================
+
+@recepciones_router.post("", status_code=status.HTTP_201_CREATED)
+@recepciones_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
+def crear_recepcion(payload: RecepcionCreate, db: Session = Depends(get_db)):
+    """Registra la hoja de recepción del auto (Proceso 2: km, combustible, testigos, fotos y firma)."""
+    return RecepcionService.crear(db, payload)
+
+
+@recepciones_router.get("")
+@recepciones_router.get("/", include_in_schema=False)
+def listar_recepciones(db: Session = Depends(get_db)):
+    return RecepcionService.listar_todas(db)
+
+
+@recepciones_router.get("/{id_recepcion}")
+def obtener_recepcion(id_recepcion: int, db: Session = Depends(get_db)):
+    try:
+        return RecepcionService.obtener_por_id(db, id_recepcion)
+    except EntityNotFoundError:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+
+@recepciones_router.put("/{id_recepcion}")
+def actualizar_recepcion(
+    id_recepcion: int, payload: RecepcionUpdate, db: Session = Depends(get_db)
+):
+    """Actualiza datos, fotos o firma de una recepción existente."""
+    try:
+        return RecepcionService.actualizar(db, id_recepcion, payload)
+    except EntityNotFoundError:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+
+@recepciones_router.get("/vehiculo/{id_vehiculo}")
+def listar_recepciones_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
+    return RecepcionService.listar_por_vehiculo(db, id_vehiculo)
+
+
+@recepciones_router.get("/registro/{id_registro}")
+def obtener_recepcion_por_registro(id_registro: int, db: Session = Depends(get_db)):
+    res = RecepcionService.obtener_por_registro(db, id_registro)
+    if not res:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return res
+
+
+@recepciones_router.get("/{id_recepcion}/validar")
+def validar_recepcion_proceso_2_1(id_recepcion: int, db: Session = Depends(get_db)):
+    """Verifica si la recepción cumple con el Proceso 2.1 (4 fotos, combustible, km y firma)."""
+    try:
+        return RecepcionService.validar_completitud(db, id_recepcion)
+    except EntityNotFoundError:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+
+@recepciones_router.post("/fotos")
+def subir_foto_recepcion(
+    archivo: UploadFile = File(...),
+    tipo: str = Query(..., description="frente | posterior | lateral_izq | lateral_der | firma | tablero"),
+):
+    """Sube una foto de la recepción o firma del cliente y retorna su URL pública."""
+    if not archivo or not archivo.filename:
+        return JSONResponse(status_code=400, content={"error": "Archivo no proporcionado"})
+    prefix = f"rec_{tipo}"
+    url = storage_service.upload_file(archivo, "recepciones", prefix)
+    return {"url": url, "tipo": tipo}
+
+
+# ==========================================
+# PRESUPUESTOS Y COTIZACIONES (/api/presupuestos) - PROCESO 5
+# ==========================================
+
+@presupuestos_router.post("", status_code=status.HTTP_201_CREATED)
+@presupuestos_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
+def crear_presupuesto(payload: PresupuestoCreate, db: Session = Depends(get_db)):
+    """Crea un presupuesto con desglose de repuestos y mano de obra (Proceso 5)."""
+    return PresupuestoService.crear(db, payload)
+
+
+@presupuestos_router.get("")
+@presupuestos_router.get("/", include_in_schema=False)
+def listar_presupuestos(db: Session = Depends(get_db)):
+    return PresupuestoService.listar_todos(db)
+
+
+@presupuestos_router.get("/{id_presupuesto}")
+def obtener_presupuesto(id_presupuesto: int, db: Session = Depends(get_db)):
+    try:
+        return PresupuestoService.obtener_por_id(db, id_presupuesto)
+    except EntityNotFoundError:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+
+@presupuestos_router.get("/registro/{id_registro}")
+def listar_presupuestos_por_registro(id_registro: int, db: Session = Depends(get_db)):
+    return PresupuestoService.listar_por_registro(db, id_registro)
+
+
+@presupuestos_router.get("/vehiculo/{id_vehiculo}")
+def listar_presupuestos_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
+    return PresupuestoService.listar_por_vehiculo(db, id_vehiculo)
+
+
+@presupuestos_router.post("/{id_presupuesto}/enviar")
+def enviar_presupuesto_al_cliente(id_presupuesto: int, db: Session = Depends(get_db)):
+    """Cambia el estado del presupuesto a ENVIADO para revisión del cliente."""
+    try:
+        return PresupuestoService.enviar_al_cliente(db, id_presupuesto)
+    except EntityNotFoundError:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+
+@presupuestos_router.post("/{id_presupuesto}/decision")
+def responder_presupuesto_cliente(
+    id_presupuesto: int, payload: PresupuestoDecisionRequest, db: Session = Depends(get_db)
+):
+    """
+    Registra la decisión del cliente sobre el presupuesto:
+    - APROBADO_TOTAL: Aprobación total de mano de obra y repuestos -> Avanza a Proceso 6.
+    - APROBADO_PARCIAL (Proceso 5.1): Ajuste de presupuesto, se aprueba solo parte de los ítems.
+    - RECHAZADO (Proceso 5.2): Se rechaza el trabajo. Si aplica, se cobra costo de diagnóstico.
+    """
+    try:
+        return PresupuestoService.registrar_decision_cliente(db, id_presupuesto, payload)
+    except EntityNotFoundError:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+
+# ==========================================
+# FASE C: REPARACIÓN, DAÑOS ADICIONALES Y CONTROL DE CALIDAD (/api/reparaciones)
+# ==========================================
+
+@reparaciones_router.post("/bitacora", status_code=status.HTTP_201_CREATED)
+def registrar_avance_reparacion(payload: BitacoraReparacionCreate, db: Session = Depends(get_db)):
+    """Registra horas trabajadas, avance técnico y fotos de la reparación (Proceso 7)."""
+    return ReparacionService.registrar_bitacora(db, payload)
+
+
+@reparaciones_router.get("/bitacora/{id_registro}")
+def listar_bitacoras_orden(id_registro: int, db: Session = Depends(get_db)):
+    """Consulta la bitácora técnica de una orden de taller."""
+    return ReparacionService.listar_bitacoras_por_registro(db, id_registro)
+
+
+@reparaciones_router.post("/danos-adicionales", status_code=status.HTTP_201_CREATED)
+def reportar_dano_adicional(payload: DanoAdicionalCreate, db: Session = Depends(get_db)):
+    """
+    Reporta un nuevo daño encontrado durante la intervención mecánica (Proceso 7.1).
+    Queda pendiente de autorización del cliente antes de continuar o cobrar.
+    """
+    return ReparacionService.reportar_dano_adicional(db, payload)
+
+
+@reparaciones_router.post("/danos-adicionales/{id_dano}/decision")
+def responder_dano_adicional(
+    id_dano: int, payload: DanoAdicionalDecisionRequest, db: Session = Depends(get_db)
+):
+    """Registra la respuesta del cliente (APROBADO / RECHAZADO) para el trabajo adicional."""
+    return ReparacionService.responder_dano_adicional(db, id_dano, payload)
+
+
+@reparaciones_router.get("/danos-adicionales/{id_registro}")
+def listar_danos_adicionales_orden(id_registro: int, db: Session = Depends(get_db)):
+    """Lista todos los daños adicionales detectados en una orden."""
+    return ReparacionService.listar_danos_por_registro(db, id_registro)
+
+
+@reparaciones_router.post("/control-calidad", status_code=status.HTTP_201_CREATED)
+def registrar_control_calidad(payload: ControlCalidadCreate, db: Session = Depends(get_db)):
+    """
+    Inspección final de calidad y escaneo OBD2 post-reparación:
+    - Si pasa (Proceso 9): Marca vehículo como LISTO PARA ENTREGA (estado 3).
+    - Si no pasa (Proceso 8.1): Devuelve al mecánico para corregir sin costo extra.
+    """
+    return ReparacionService.registrar_control_calidad(db, payload)
+
+
+@reparaciones_router.get("/control-calidad/{id_registro}")
+def listar_controles_calidad_orden(id_registro: int, db: Session = Depends(get_db)):
+    """Obtiene el historial de revisiones de calidad y escaneo final de la orden."""
+    return ReparacionService.listar_controles_por_registro(db, id_registro)
+
+
+@reparaciones_router.post("/fotos")
+def subir_foto_reparacion(
+    archivo: UploadFile = File(...),
+    tipo: str = Query(..., description="proceso_reparacion | dano_adicional | escaneo_final"),
+):
+    """Sube fotos tomadas durante la reparación o evidencia de daños ocultos."""
+    if not archivo or not archivo.filename:
+        return JSONResponse(status_code=400, content={"error": "Archivo no proporcionado"})
+    url = storage_service.upload_file(archivo, "reparaciones", f"rep_{tipo}")
+    return {"url": url, "tipo": tipo}
+
+
+# ==========================================
+# FASE E: ENTREGA DEL VEHÍCULO (/api/entregas) - PROCESO 15
+# ==========================================
+
+@entregas_router.post("", status_code=status.HTTP_201_CREATED)
+@entregas_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
+def registrar_entrega_vehiculo(payload: EntregaVehiculoCreate, db: Session = Depends(get_db)):
+    """
+    Proceso 15: Entrega física del vehículo al cliente.
+    Verifica que la orden esté pagada, registra firma de salida y reinicia ciclos de desgaste.
+    """
+    return EntregaService.entregar_vehiculo(db, payload)
+
+
+@entregas_router.get("/registro/{id_registro}")
+def obtener_entrega_por_registro(id_registro: int, db: Session = Depends(get_db)):
+    res = EntregaService.obtener_entrega_por_registro(db, id_registro)
+    if not res:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return res
+
+
+@entregas_router.get("")
+@entregas_router.get("/", include_in_schema=False)
+def listar_entregas_realizadas(db: Session = Depends(get_db)):
+    return EntregaService.listar_entregas(db)
+
+
+
 

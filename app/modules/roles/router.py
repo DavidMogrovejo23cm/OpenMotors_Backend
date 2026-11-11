@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.authorization import require_roles
 from app.modules.roles.schemas import (
     RolCreate,
     RolBase,
@@ -13,8 +14,9 @@ from app.modules.roles.schemas import (
 )
 from app.modules.roles.service import RolService, UsuarioRolService
 
-rol_router = APIRouter(prefix="/api/rol", tags=["Roles"])
-usuario_rol_router = APIRouter(prefix="/api/usuario_rol", tags=["Usuario-Rol"])
+admin_only = [Depends(require_roles("ADMIN"))]
+rol_router = APIRouter(prefix="/api/rol", tags=["Roles"], dependencies=admin_only)
+usuario_rol_router = APIRouter(prefix="/api/usuario_rol", tags=["Usuario-Rol"], dependencies=admin_only)
 
 
 # ==========================================

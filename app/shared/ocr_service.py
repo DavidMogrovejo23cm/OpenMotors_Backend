@@ -4,12 +4,12 @@ from typing import Optional
 import requests
 from app.core.config import settings
 
-logger = logging.getLogger("gmotors.ocr")
+logger = logging.getLogger("openauto.ocr")
 
-# Patrones típicos de placas ecuatorianas de motos (ej. IA123B, AB123C, ABC1234, AB-1234)
+# Patrones típicos de placas ecuatorianas de autos (ej. ABC-1234, ABC1234, AB-1234)
 PLATE_PATTERNS = [
-    re.compile(r"\b([A-Z]{2}\d{3}[A-Z])\b"),       # Moto formato nuevo Ecuador: AA000A
-    re.compile(r"\b([A-Z]{2,3}[-]?\d{3,4}[A-Z]?)\b"),  # General vehículo/moto
+    re.compile(r"\b([A-Z]{3}[-]?\d{3,4})\b"),           # Autos Ecuador formato estándar: ABC-1234 o ABC1234
+    re.compile(r"\b([A-Z]{2,3}[-]?\d{3,4}[A-Z]?)\b"),   # General vehículo / auto
 ]
 
 

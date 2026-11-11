@@ -17,7 +17,7 @@ class OfertaIndividualRequest(BaseModel):
 
     correo: str
     nombre: Optional[str] = "Cliente"
-    titulo: Optional[str] = "¡Promoción Especial Open Motors!"
+    titulo: Optional[str] = "¡Promoción Especial Open Auto!"
     mensaje: str
     descuento: Optional[str] = None
     validez: Optional[str] = None
@@ -27,7 +27,7 @@ class OfertaIndividualRequest(BaseModel):
 class OfertaMasivaRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    titulo: str = "¡Oferta Exclusiva Open Motors!"
+    titulo: str = "¡Oferta Exclusiva Open Auto!"
     mensaje: str
     descuento: Optional[str] = None
     validez: Optional[str] = None
@@ -46,7 +46,7 @@ def enviar_oferta_individual(payload: OfertaIndividualRequest):
     email_service.enviar_correo_oferta(
         destinatario=payload.correo.strip(),
         nombre_cliente=payload.nombre or "Cliente",
-        titulo=payload.titulo or "¡Promoción Especial Open Motors!",
+        titulo=payload.titulo or "¡Promoción Especial Open Auto!",
         mensaje=payload.mensaje,
         descuento=payload.descuento,
         validez=payload.validez,

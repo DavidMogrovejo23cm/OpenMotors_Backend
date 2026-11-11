@@ -21,24 +21,34 @@ from app.modules.roles.router import rol_router, usuario_rol_router
 from app.modules.usuarios.router import (
     usuarios_router,
     recuperacion_router,
-    quick_account_router,
 )
-from app.modules.motos.router import motos_router
+from app.modules.vehiculos.router import vehiculos_router
 from app.modules.mantenimiento.router import (
     parametros_router,
     mantenimientos_router,
     alertas_router,
+    citas_mantenimiento_router,
 )
 from app.modules.inventario.router import (
     categorias_router,
     productos_router,
     proveedores_router,
+    kardex_router,
+    reservas_router,
 )
-from app.modules.facturacion.router import facturas_router, detalles_factura_router
+from app.modules.facturacion.router import (
+    facturas_router,
+    detalles_factura_router,
+    notas_venta_router,
+)
 from app.modules.taller.router import (
     tipos_router,
     registros_router,
     diagnosticos_router,
+    recepciones_router,
+    presupuestos_router,
+    reparaciones_router,
+    entregas_router,
 )
 from app.modules.combustible.router import combustible_router
 from app.modules.finanzas.router import pagos_router
@@ -50,24 +60,24 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("gmotors.main")
+logger = logging.getLogger("openauto.main")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Iniciando OpenMotors Backend (Python FastAPI)...")
+    logger.info("Iniciando OpenAuto Backend (Python FastAPI)...")
     init_db_and_seed()
     storage_service.ensure_bucket()
     keep_alive_task = asyncio.create_task(keep_alive_loop())
     yield
     keep_alive_task.cancel()
-    logger.info("OpenMotors Backend detenido correctamente.")
+    logger.info("OpenAuto Backend detenido correctamente.")
 
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="API Backend Modular de Open Motors Taller & Repuestos (FastAPI + SQLAlchemy 2.0)",
+    description="API Backend Modular de Open Auto — Taller Automotriz y Gestión de Autos (FastAPI + SQLAlchemy 2.0)",
     lifespan=lifespan,
 )
 
@@ -77,7 +87,7 @@ register_exception_handlers(app)
 # Configurar CORS compatible con el frontend React/Vite y despliegues en Vercel/Render
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*",
+    allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
@@ -95,21 +105,14 @@ def _is_public_route(method: str, path: str) -> bool:
         "/redoc",
         "/openapi.json",
         "/api/usuarios/login",
-        "/api/usuarios/upload",
         "/api/health",
-        "/api/health/email-test",
         "/actuator/health",
         "/actuator/info",
     }
     if path in public_exact:
         return True
-    if method == "POST" and path in ("/api/usuarios", "/api/usuarios/"):
-        return True
     public_prefixes = (
         "/api/usuarios/recuperacion/",
-        "/api/rol",
-        "/api/usuario_rol",
-        "/api/metrics/",
         "/images/",
         "/static/",
     )
@@ -173,19 +176,26 @@ app.include_router(rol_router)
 app.include_router(usuario_rol_router)
 app.include_router(usuarios_router)
 app.include_router(recuperacion_router)
-app.include_router(quick_account_router)
-app.include_router(motos_router)
+app.include_router(vehiculos_router)
 app.include_router(parametros_router)
 app.include_router(mantenimientos_router)
 app.include_router(alertas_router)
+app.include_router(citas_mantenimiento_router)
 app.include_router(categorias_router)
 app.include_router(productos_router)
 app.include_router(proveedores_router)
+app.include_router(kardex_router)
+app.include_router(reservas_router)
 app.include_router(facturas_router)
 app.include_router(detalles_factura_router)
+app.include_router(notas_venta_router)
 app.include_router(tipos_router)
 app.include_router(registros_router)
 app.include_router(diagnosticos_router)
+app.include_router(recepciones_router)
+app.include_router(presupuestos_router)
+app.include_router(reparaciones_router)
+app.include_router(entregas_router)
 app.include_router(combustible_router)
 app.include_router(pagos_router)
 app.include_router(rutas_router)

@@ -1,2 +1,2 @@
-"""Módulo de Rutas GPS de Motociclistas."""
+"""Módulo de rutas GPS para vehículos."""
 

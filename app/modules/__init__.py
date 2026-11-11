@@ -1,2 +1,2 @@
-"""Módulos de dominio de Open Motors."""
+"""Módulos de dominio de Open Auto."""
 

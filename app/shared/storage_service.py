@@ -8,7 +8,7 @@ import requests
 from fastapi import UploadFile
 from app.core.config import settings
 
-logger = logging.getLogger("gmotors.storage")
+logger = logging.getLogger("openauto.storage")
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
@@ -17,7 +17,7 @@ LOCAL_UPLOAD_ROOT = Path("static/uploads")
 
 class StorageService:
     """
-    Servicio de almacenamiento de imágenes para Usuarios, Motos y Productos.
+    Servicio de almacenamiento de imágenes para Usuarios, Vehiculos y Productos.
     - Si SUPABASE_URL y las llaves están configuradas, sube a Supabase Storage
       (asegurando de forma idempotente que el bucket exista y sea público).
     - Si no hay configuración de Supabase (desarrollo local), almacena el archivo
@@ -121,8 +121,8 @@ class StorageService:
     def subir_imagen_usuario(self, file: UploadFile, content: bytes) -> str:
         return self.subir_archivo(file, content, "usuarios/perfil/")
 
-    def subir_imagen_moto(self, file: UploadFile, content: bytes) -> str:
-        return self.subir_archivo(file, content, "motos/perfil/")
+    def subir_imagen_vehiculo(self, file: UploadFile, content: bytes) -> str:
+        return self.subir_archivo(file, content, "vehiculos/perfil/")
 
     def subir_imagen_producto(self, file: UploadFile, content: bytes) -> str:
         return self.subir_archivo(file, content, "productos/imagen/")

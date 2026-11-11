@@ -13,7 +13,7 @@ from app.modules.roles.models import Rol, UsuarioRol
 from app.shared.email_service import email_service
 from app.shared.storage_service import storage_service
 
-logger = logging.getLogger("gmotors.usuarios")
+logger = logging.getLogger("openauto.usuarios")
 
 
 class UsuarioService:
@@ -42,7 +42,9 @@ class UsuarioService:
         if db.query(Usuario).filter(func.lower(Usuario.nombre_usuario) == username_norm.lower()).first():
             raise ConflictError("El nombre de usuario ya está en uso")
 
-        raw_pwd = payload.contrasena or "123456"
+        raw_pwd = payload.contrasena
+        if not raw_pwd or len(raw_pwd) < 12:
+            raise BusinessValidationError("La contraseña debe tener al menos 12 caracteres")
         pwd_hash = raw_pwd if is_bcrypt_hash(raw_pwd) else hash_password(raw_pwd)
 
         nuevo = Usuario(
@@ -97,7 +99,12 @@ class UsuarioService:
         return nuevo
 
     @staticmethod
-    def actualizar(db: Session, id_usuario: int, payload: Any) -> Usuario:
+    def actualizar(
+        db: Session,
+        id_usuario: int,
+        payload: Any,
+        permitir_campos_administrativos: bool = False,
+    ) -> Usuario:
         usuario = UsuarioService.obtener_por_id(db, id_usuario)
 
         if payload.nombre_completo is not None:
@@ -140,7 +147,7 @@ class UsuarioService:
             usuario.cedula = payload.cedula
         if payload.direccion is not None:
             usuario.direccion = payload.direccion
-        if payload.puntos_bonus is not None:
+        if permitir_campos_administrativos and payload.puntos_bonus is not None:
             usuario.puntos_bonus = payload.puntos_bonus
 
         if payload.ruta_imagen is not None:
@@ -182,21 +189,12 @@ class UsuarioService:
         if not usuario:
             raise PermissionError("Credenciales inválidas")
 
-        # Soporte para login de Google OAuth determinístico (gm_google_...)
-        es_login_google = contrasena.startswith("gm_google_")
-
-        if es_login_google:
-            # Si el usuario entra con Google, sincronizamos su hash o validamos correo
-            if not verify_password(contrasena, usuario.contrasena):
-                usuario.contrasena = hash_password(contrasena)
-                db.commit()
-        else:
-            if not verify_password(contrasena, usuario.contrasena):
-                raise PermissionError("Credenciales inválidas")
-            # Si estaba en texto plano, migrar automáticamente a BCrypt
-            if not is_bcrypt_hash(usuario.contrasena):
-                usuario.contrasena = hash_password(contrasena)
-                db.commit()
+        if not verify_password(contrasena, usuario.contrasena):
+            raise PermissionError("Credenciales inválidas")
+        # Si estaba en texto plano, migrar automáticamente a BCrypt.
+        if not is_bcrypt_hash(usuario.contrasena):
+            usuario.contrasena = hash_password(contrasena)
+            db.commit()
 
         usuario.ensure_defaults()
         db.commit()

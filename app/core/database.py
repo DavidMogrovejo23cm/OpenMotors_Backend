@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from app.core.config import settings
 
-logger = logging.getLogger("gmotors.database")
+logger = logging.getLogger("openauto.database")
 
 db_url = settings.sqlalchemy_database_url
 is_sqlite = db_url.startswith("sqlite")

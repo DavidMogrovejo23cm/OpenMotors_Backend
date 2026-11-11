@@ -14,7 +14,7 @@ metrics_router = APIRouter(prefix="/api/metrics/reports", tags=["Métricas y Rep
 def api_health():
     return {
         "status": "UP",
-        "service": "OpenMotors Backend (Python FastAPI)",
+        "service": "OpenAuto Backend (Python FastAPI)",
         "version": settings.APP_VERSION,
         "timestamp": datetime.now().isoformat(),
     }

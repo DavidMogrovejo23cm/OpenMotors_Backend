@@ -1,12 +1,13 @@
 import os
 import re
 from urllib.parse import quote_plus
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """
-    Configuración global de OpenMotors Backend.
+    Configuración global de OpenAuto Backend.
     Soporta tanto las variables de entorno actuales de Render/Spring Boot
     (DB_URL con prefijo jdbc:postgresql://, DB_USER, DB_PASSWORD, JWT_SECRET, etc.)
     como base de datos SQLite local para desarrollo inmediato.
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    APP_NAME: str = "OpenMotors"
+    APP_NAME: str = "OpenAuto"
     APP_VERSION: str = "2.0.0"
     APP_ENV: str = os.getenv("APP_ENV", "development")
     PORT: int = int(os.getenv("PORT", "8080"))
@@ -30,36 +31,40 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
 
     # JWT
-    JWT_SECRET: str = os.getenv(
-        "JWT_SECRET",
-        "fJ8yX9mL4pQ2vT7sA1bK3rN6eP4cZ8hW0tD9uR5yM2fL8oQ9wE7rB3kU6nH5jC2",
-    )
-    JWT_EXPIRATION_MINUTES: int = int(os.getenv("JWT_EXPIRATION_MINUTES", "10080"))
+    # No hay valor por defecto: desplegar sin esta variable debe fallar de forma visible.
+    JWT_SECRET: str = Field(..., min_length=32)
+    JWT_EXPIRATION_MINUTES: int = Field(default=480, ge=15, le=1440)
 
     # CORS
     ALLOWED_ORIGINS: str = os.getenv(
         "ALLOWED_ORIGINS",
-        "http://localhost:4200,http://localhost:3000,http://localhost:5173,"
-        "https://openmotor.vercel.app,https://openmotor.vercel.app,"
-        "https://openmotor.vercel.app",
+        "http://localhost:5173,http://localhost:4200,https://openmotor.vercel.app",
     )
+    SEED_DEMO_DATA: bool = os.getenv("SEED_DEMO_DATA", "false").lower() == "true"
+    BOOTSTRAP_ADMIN_USERNAME: str = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "")
+    BOOTSTRAP_ADMIN_EMAIL: str = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "")
+    BOOTSTRAP_ADMIN_PASSWORD: str = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     # Proveedores de Email
     BREVO_API_KEY: str = os.getenv("BREVO_API_KEY", "")
     SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
-    RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "noreply@openmotor.com")
+    RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "noreply@openauto.com")
     MAIL_HOST: str = os.getenv("MAIL_HOST", "smtp.gmail.com")
     MAIL_PORT: int = int(os.getenv("MAIL_PORT", "587"))
     MAIL_USERNAME: str = os.getenv("MAIL_USERNAME", "")
     MAIL_PASSWORD: str = os.getenv("MAIL_PASSWORD", "")
-    MAIL_FROM_NAME: str = os.getenv("MAIL_FROM_NAME", "Open Motors")
+    MAIL_FROM_NAME: str = os.getenv("MAIL_FROM_NAME", "Open Auto")
 
     # Supabase Storage
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "motores")
+    SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "autos")
 
     # OCR
     FLASK_OCR_URL: str = os.getenv("FLASK_OCR_URL", "http://localhost:5000/api/ocr/placa")
@@ -94,11 +99,11 @@ class Settings(BaseSettings):
         Construye una URL válida para SQLAlchemy a partir de DB_URL o DATABASE_URL.
         Convierte automáticamente URLs JDBC (`jdbc:postgresql://...`) o `postgres://`
         e inyecta `DB_USER` y `DB_PASSWORD` si vienen por separado (como en Render).
-        Si no hay base externa configurada o es H2, usa SQLite local (`./gmotors_db.sqlite`).
+        Si no hay base externa configurada o es H2, usa SQLite local (`./openauto_db.sqlite`).
         """
         raw = (self.DB_URL or self.DATABASE_URL or "").strip()
         if not raw or "jdbc:h2:" in raw:
-            return "sqlite:///./gmotors_db.sqlite"
+            return "sqlite:///./openauto_db.sqlite"
 
         # Quitar prefijo jdbc: si viene de configuración previa de Spring Boot
         if raw.startswith("jdbc:"):

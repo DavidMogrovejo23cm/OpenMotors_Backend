@@ -8,7 +8,7 @@ class CargaCombustible(Base):
     __tablename__ = "carga_combustible"
 
     id = Column("id", Integer, primary_key=True, index=True, autoincrement=True)
-    id_moto = Column("id_moto", Integer, nullable=False, index=True)
+    id_vehiculo = Column("id_vehiculo", Integer, nullable=False, index=True)
     placa = Column("placa", String(20), nullable=True)
     fecha = Column("fecha", Date, nullable=False, default=date.today)
     litros = Column("litros", Float, nullable=False, default=0.0)
@@ -20,8 +20,8 @@ class CargaCombustible(Base):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
-            "id_moto": self.id_moto,
-            "idMoto": self.id_moto,
+            "id_vehiculo": self.id_vehiculo,
+            "idVehiculo": self.id_vehiculo,
             "placa": self.placa or "",
             "fecha": self.fecha.isoformat() if self.fecha else date.today().isoformat(),
             "litros": round(float(self.litros or 0.0), 3),

@@ -3,41 +3,47 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.core.database import Base, engine, SessionLocal
+from app.core.config import settings
+from app.core.migrations import migrate_vehicle_schema
 from app.core.security import hash_password
 
 # Importar todos los modelos para registrar sus tablas en Base.metadata
 from app.modules.roles.models import Rol, UsuarioRol  # noqa: F401
 from app.modules.usuarios.models import Usuario, RecuperacionContrasena  # noqa: F401
-from app.modules.motos.models import Moto  # noqa: F401
+from app.modules.vehiculos.models import Vehiculo  # noqa: F401
 from app.modules.mantenimiento.models import (  # noqa: F401
     ParametroMantenimiento,
     MantenimientoRealizado,
     AlertaEnviada,
 )
-from app.modules.inventario.models import Categoria, Producto, ContactoProveedor  # noqa: F401
+from app.modules.inventario.models import Categoria, Producto, ContactoProveedor, MovimientoKardex  # noqa: F401
 from app.modules.facturacion.models import Factura, DetalleFactura  # noqa: F401
 from app.modules.taller.models import (  # noqa: F401
     Tipo,
     Registro,
-    DiagnosticoMoto,
+    DiagnosticoVehiculo,
     DetalleDiagnostico,
+    RecepcionVehiculo,
 )
 from app.modules.combustible.models import CargaCombustible, AppConfig  # noqa: F401
 from app.modules.finanzas.models import PagoEmpleado  # noqa: F401
 from app.modules.rutas.models import Ruta  # noqa: F401
 
-logger = logging.getLogger("gmotors.seeder")
+logger = logging.getLogger("openauto.seeder")
 
 
 def init_db_and_seed() -> None:
     """Crea todas las tablas si no existen e inicializa los datos semilla."""
+    migrate_vehicle_schema(engine)
     Base.metadata.create_all(bind=engine)
     db: Session = SessionLocal()
     try:
         _seed_roles(db)
         _seed_default_users(db)
         _backfill_referral_codes(db)
+        _seed_categories(db)
         _seed_service_types(db)
+        _replace_legacy_maintenance_parameters(db)
         _seed_maintenance_parameters(db)
         logger.info("Base de datos e información semilla verificadas correctamente.")
     except Exception as exc:
@@ -45,6 +51,21 @@ def init_db_and_seed() -> None:
         logger.error(f"Error durante la inicialización de datos semilla: {exc}")
     finally:
         db.close()
+
+
+def _seed_categories(db: Session) -> None:
+    if db.query(Categoria).count() > 0:
+        return
+    cats = [
+        Categoria(nombre="Repuestos de Motor", descripcion="Bujías, correas, empaques y componentes mecánicos"),
+        Categoria(nombre="Sistema de Frenos", descripcion="Pastillas, zapatas, discos y tambores"),
+        Categoria(nombre="Suspensión y Dirección", descripcion="Amortiguadores, rótulas, terminales y bujes"),
+        Categoria(nombre="Filtros y Fluidos", descripcion="Aceites, refrigerantes, filtros de aire, aceite y gasolina"),
+        Categoria(nombre="Sistema Eléctrico", descripcion="Baterías, alternadores, bobinas y sensores"),
+        Categoria(nombre="Repuestos Generales", descripcion="Misceláneos y accesorios de taller"),
+    ]
+    db.add_all(cats)
+    db.commit()
 
 
 def _seed_roles(db: Session) -> None:
@@ -61,20 +82,24 @@ def _seed_roles(db: Session) -> None:
 
 
 def _seed_default_users(db: Session) -> None:
+    if not settings.SEED_DEMO_DATA:
+        _seed_bootstrap_admin(db)
+        return
+
     pwd_default = hash_password("123456")
     usuarios_def = [
         {
-            "nombre_completo": "Open Motors Oficial",
-            "nombre_usuario": "openmotors",
-            "correo": "info@openmotor.com",
+            "nombre_completo": "Open Auto Oficial",
+            "nombre_usuario": "openauto",
+            "correo": "info@openauto.com",
             "ciudad": "Quito",
-            "descripcion": "Cuenta administrativa oficial de Open Motors",
+            "descripcion": "Cuenta administrativa oficial de Open Auto",
             "id_rol": 1,
         },
         {
             "nombre_completo": "Administrador General",
             "nombre_usuario": "admin",
-            "correo": "admin@openmotor.com",
+            "correo": "admin@openauto.com",
             "ciudad": "Quito",
             "descripcion": "Administrador del sistema",
             "id_rol": 1,
@@ -82,7 +107,7 @@ def _seed_default_users(db: Session) -> None:
         {
             "nombre_completo": "Mecánico Principal",
             "nombre_usuario": "mecanico",
-            "correo": "mecanico@openmotor.com",
+            "correo": "mecanico@openauto.com",
             "ciudad": "Quito",
             "descripcion": "Especialista técnico de taller",
             "id_rol": 3,
@@ -90,7 +115,7 @@ def _seed_default_users(db: Session) -> None:
         {
             "nombre_completo": "Cliente Demo",
             "nombre_usuario": "cliente",
-            "correo": "cliente@openmotor.com",
+            "correo": "cliente@openauto.com",
             "ciudad": "Quito",
             "descripcion": "Cliente demostrativo",
             "id_rol": 2,
@@ -153,6 +178,52 @@ def _backfill_referral_codes(db: Session) -> None:
         db.commit()
 
 
+def _seed_bootstrap_admin(db: Session) -> None:
+    """Crea el primer administrador solo si las tres credenciales vienen del entorno."""
+    username = settings.BOOTSTRAP_ADMIN_USERNAME.strip()
+    email = settings.BOOTSTRAP_ADMIN_EMAIL.strip().lower()
+    password = settings.BOOTSTRAP_ADMIN_PASSWORD
+    if not (username and email and password):
+        return
+    if len(password) < 12:
+        logger.error("BOOTSTRAP_ADMIN_PASSWORD debe tener al menos 12 caracteres")
+        return
+
+    existe_admin = (
+        db.query(UsuarioRol)
+        .join(Rol, UsuarioRol.id_rol == Rol.id_rol)
+        .filter(Rol.nombre == "ADMIN", UsuarioRol.estado == 1)
+        .first()
+    )
+    if existe_admin:
+        return
+
+    usuario = (
+        db.query(Usuario)
+        .filter((Usuario.correo == email) | (Usuario.nombre_usuario == username))
+        .first()
+    )
+    if not usuario:
+        usuario = Usuario(
+            nombre_completo="Administrador inicial",
+            nombre_usuario=username,
+            correo=email,
+            contrasena=hash_password(password),
+            pais="Ecuador",
+            puntos_bonus=0,
+            referido_usado=False,
+        )
+        usuario.ensure_defaults()
+        db.add(usuario)
+        db.flush()
+
+    admin_role = db.query(Rol).filter(Rol.nombre == "ADMIN").first()
+    if admin_role:
+        db.add(UsuarioRol(id_usuario=usuario.id_usuario, id_rol=admin_role.id_rol, estado=1))
+        db.commit()
+        logger.info("Administrador inicial creado desde las variables de entorno.")
+
+
 def _seed_service_types(db: Session) -> None:
     if db.query(Tipo).count() > 0:
         return
@@ -166,7 +237,7 @@ def _seed_service_types(db: Session) -> None:
         ),
         Tipo(
             nombre="Mantenimiento Preventivo General",
-            descripcion="Revisión completa de 15 puntos, ajuste de cadena, frenos y lubricación",
+            descripcion="Revisión completa de frenos, fluidos, suspensión, dirección y neumáticos",
             concepto_manual="Mano de obra mantenimiento preventivo",
             concepto_cantidad=1,
             concepto_precio_unitario=25.0,
@@ -180,15 +251,15 @@ def _seed_service_types(db: Session) -> None:
         ),
         Tipo(
             nombre="Sistema Eléctrico",
-            descripcion="Diagnóstico y reparación de batería, luces, estator o regulador",
+            descripcion="Diagnóstico y reparación de batería, alternador, luces y sensores",
             concepto_manual="Diagnóstico y mano de obra eléctrica",
             concepto_cantidad=1,
             concepto_precio_unitario=15.0,
         ),
         Tipo(
-            nombre="Afinación de Motor (ABC)",
-            descripcion="Calibración de válvulas, limpieza de carburador/inyector y cambio de bujía",
-            concepto_manual="Mano de obra ABC de motor",
+            nombre="Afinación de Motor",
+            descripcion="Revisión de bujías, inyección, filtros y calibración del motor",
+            concepto_manual="Mano de obra de afinación",
             concepto_cantidad=1,
             concepto_precio_unitario=30.0,
         ),
@@ -201,14 +272,12 @@ def _seed_maintenance_parameters(db: Session) -> None:
     if db.query(ParametroMantenimiento).count() > 0:
         return
 
-    # 35 parámetros basados en las condiciones geográficas y climáticas de Ecuador
+    # Parámetros de mantenimiento preventivo para vehículos de pasajeros.
     rangos = [
-        # (cc_min, cc_max, aceite, filtro_aire, bujia, frenos, kit_arrastre, valvulas, general)
-        (100, 150, 2000, 4000, 6000, 5000, 15000, 6000, 3000),
-        (151, 200, 2500, 5000, 8000, 5000, 18000, 8000, 3500),
-        (201, 250, 3000, 6000, 10000, 6000, 20000, 10000, 4000),
-        (251, 350, 3500, 8000, 12000, 6000, 22000, 12000, 5000),
-        (351, 1200, 5000, 10000, 15000, 8000, 25000, 15000, 6000),
+        # (cc_min, cc_max, aceite, filtro_aire, bujia, frenos, transmision, valvulas, general)
+        (800, 1600, 5000, 10000, 20000, 10000, 40000, 30000, 10000),
+        (1601, 2500, 7000, 12000, 30000, 12000, 50000, 40000, 12000),
+        (2501, 6000, 8000, 15000, 35000, 15000, 60000, 50000, 15000),
     ]
 
     parametros = []
@@ -246,9 +315,9 @@ def _seed_maintenance_parameters(db: Session) -> None:
             ParametroMantenimiento(
                 cc_min=cc_min,
                 cc_max=cc_max,
-                tipo_mantenimiento="KIT_ARRASTRE",
+                tipo_mantenimiento="SISTEMA_TRANSMISION",
                 intervalo_km=km_ka,
-                descripcion=f"Cambio de cadena, piñón y catalina {etiqueta}",
+                descripcion=f"Revisión de transmisión, embrague y fluidos {etiqueta}",
             ),
             ParametroMantenimiento(
                 cc_min=cc_min,
@@ -268,4 +337,21 @@ def _seed_maintenance_parameters(db: Session) -> None:
 
     db.add_all(parametros)
     db.commit()
+
+
+def _replace_legacy_maintenance_parameters(db: Session) -> None:
+    """Reemplaza el catálogo heredado por el de autos y vehículos.
+
+    Un catálogo personalizado nunca se toca: la detección se limita al rango
+    histórico, cuyo mayor cilindraje era 1200 cc.
+    """
+    parametros = db.query(ParametroMantenimiento).all()
+    if not parametros:
+        return
+    if max(param.cc_max for param in parametros) > 1200:
+        return
+    for parametro in parametros:
+        db.delete(parametro)
+    db.commit()
+    logger.info("Catálogo de mantenimiento actualizado para vehículos.")
 

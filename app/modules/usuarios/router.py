@@ -1,11 +1,11 @@
-import random
+import secrets
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.core.database import get_db
-from app.core.exceptions import BusinessValidationError, ConflictError, EntityNotFoundError
+from app.core.authorization import CurrentUser, current_user, require_roles, require_self_or_roles
+from app.core.exceptions import BusinessValidationError, EntityNotFoundError
 from app.modules.usuarios.schemas import (
     UsuarioCreate,
     UsuarioUpdate,
@@ -14,37 +14,65 @@ from app.modules.usuarios.schemas import (
     SolicitarRecuperacionRequest,
     ValidarTokenRequest,
     RestablecerContrasenaRequest,
-    QuickAccountRequest,
+    ClienteCreate,
 )
 from app.modules.usuarios.service import UsuarioService, RecuperacionContrasenaService
-from app.modules.usuarios.models import Usuario
 from app.shared.storage_service import storage_service
 
 usuarios_router = APIRouter(prefix="/api/usuarios", tags=["Usuarios"])
 recuperacion_router = APIRouter(prefix="/api/usuarios/recuperacion", tags=["Recuperación de Contraseña"])
-quick_account_router = APIRouter(prefix="/api/quick-accounts", tags=["Creación Rápida"])
 
 
 # ==========================================
 # ENDPOINTS DE USUARIOS (/api/usuarios)
 # ==========================================
 
-@usuarios_router.post("", status_code=status.HTTP_201_CREATED)
-@usuarios_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
-def registrar_usuario(payload: UsuarioCreate, db: Session = Depends(get_db)):
-    nuevo = UsuarioService.registrar(db, payload, asignar_rol_cliente=True)
-    return nuevo.to_dict(include_roles=True)
+@usuarios_router.post("/clientes", status_code=status.HTTP_201_CREATED)
+def crear_cliente(
+    payload: ClienteCreate,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_roles("ADMIN", "MECANICO")),
+):
+    """Registra internamente a un cliente y entrega una clave temporal una sola vez."""
+    contrasena_temporal = payload.contrasena_temporal or secrets.token_urlsafe(18)
+    usuario_in = UsuarioCreate(
+        nombre_completo=payload.nombre_completo,
+        nombre_usuario=payload.nombre_usuario,
+        correo=payload.correo,
+        contrasena=contrasena_temporal,
+        pais="Ecuador",
+        ciudad=payload.ciudad,
+        telefono=payload.telefono,
+        cedula=payload.cedula,
+        direccion=payload.direccion,
+        descripcion="Cliente registrado por personal del taller",
+    )
+    nuevo = UsuarioService.registrar(db, usuario_in, asignar_rol_cliente=True)
+    return {
+        "usuario": nuevo.to_dict(include_roles=True),
+        "credencialTemporal": {
+            "nombreUsuario": nuevo.nombre_usuario,
+            "contrasena": contrasena_temporal,
+        },
+    }
 
 
 @usuarios_router.get("")
 @usuarios_router.get("/", include_in_schema=False)
-def listar_usuarios(db: Session = Depends(get_db)):
+def listar_usuarios(
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_roles("ADMIN", "MECANICO")),
+):
     usuarios = UsuarioService.listar_todos(db)
     return [u.to_dict(include_roles=True) for u in usuarios]
 
 
 @usuarios_router.get("/{id_usuario}")
-def obtener_usuario(id_usuario: int, db: Session = Depends(get_db)):
+def obtener_usuario(
+    id_usuario: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_self_or_roles("ADMIN", "MECANICO")),
+):
     try:
         u = UsuarioService.obtener_por_id(db, id_usuario)
         return u.to_dict(include_roles=True)
@@ -53,13 +81,28 @@ def obtener_usuario(id_usuario: int, db: Session = Depends(get_db)):
 
 
 @usuarios_router.put("/{id_usuario}")
-def actualizar_usuario(id_usuario: int, payload: UsuarioUpdate, db: Session = Depends(get_db)):
-    u = UsuarioService.actualizar(db, id_usuario, payload)
+def actualizar_usuario(
+    id_usuario: int,
+    payload: UsuarioUpdate,
+    db: Session = Depends(get_db),
+    actor: CurrentUser = Depends(require_self_or_roles("ADMIN", "MECANICO")),
+):
+    puede_administrar = bool(actor.roles.intersection({"ADMIN", "MECANICO"}))
+    u = UsuarioService.actualizar(
+        db,
+        id_usuario,
+        payload,
+        permitir_campos_administrativos=puede_administrar,
+    )
     return u.to_dict(include_roles=True)
 
 
 @usuarios_router.delete("/{id_usuario}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar_usuario(id_usuario: int, db: Session = Depends(get_db)):
+def eliminar_usuario(
+    id_usuario: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_roles("ADMIN")),
+):
     UsuarioService.eliminar(db, id_usuario)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -75,7 +118,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @usuarios_router.get("/{id_usuario}/roles")
-def obtener_roles_usuario(id_usuario: int, db: Session = Depends(get_db)):
+def obtener_roles_usuario(
+    id_usuario: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_self_or_roles("ADMIN", "MECANICO")),
+):
     u = UsuarioService.obtener_por_id(db, id_usuario)
     return [r.to_dict(include_usuario=False) for r in (u.roles or [])]
 
@@ -83,16 +130,21 @@ def obtener_roles_usuario(id_usuario: int, db: Session = Depends(get_db)):
 @usuarios_router.post("/upload")
 def subir_imagen_perfil(
     archivo: UploadFile = File(...),
-    nombreUsuario: str = Form("user"),
+    _: CurrentUser = Depends(current_user),
 ):
     if not archivo or not archivo.filename:
         return JSONResponse(status_code=400, content={"error": "El archivo está vacío"})
-    url = storage_service.upload_file(archivo, "perfiles", f"perfil_{nombreUsuario}")
+    url = storage_service.upload_file(archivo, "perfiles", f"perfil_{_.id_usuario}")
     return {"url": url}
 
 
 @usuarios_router.post("/{id_usuario}/usar-referido")
-def usar_codigo_referido(id_usuario: int, payload: UsarReferidoRequest, db: Session = Depends(get_db)):
+def usar_codigo_referido(
+    id_usuario: int,
+    payload: UsarReferidoRequest,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_self_or_roles("ADMIN", "MECANICO")),
+):
     return UsuarioService.usar_codigo_referido(db, id_usuario, payload.codigo)
 
 
@@ -145,62 +197,4 @@ def restablecer_contrasena(payload: RestablecerContrasenaRequest, db: Session = 
         )
     except BusinessValidationError as exc:
         return JSONResponse(status_code=400, content={"error": exc.message, "exito": False})
-
-
-# ==========================================
-# ENDPOINTS DE CUENTA RÁPIDA (/api/quick-accounts)
-# ==========================================
-
-@quick_account_router.post("/create", status_code=status.HTTP_201_CREATED)
-def crear_cuenta_rapida(payload: QuickAccountRequest, db: Session = Depends(get_db)):
-    from app.modules.motos.schemas import MotoCreate
-    from app.modules.motos.service import MotoService
-    from app.modules.motos.models import Moto
-
-    correo_norm = payload.correo.strip().lower()
-    if db.query(Usuario).filter(func.lower(Usuario.correo) == correo_norm).first():
-        raise ConflictError("El correo ya está registrado")
-
-    placa_norm = payload.placa.strip().upper()
-    if db.query(Moto).filter(func.upper(Moto.placa) == placa_norm).first():
-        raise ConflictError("La placa ya está registrada")
-
-    base_username = correo_norm.split("@")[0] if "@" in correo_norm else correo_norm
-    username = base_username
-    while db.query(Usuario).filter(func.lower(Usuario.nombre_usuario) == username.lower()).first():
-        username = f"{base_username}{random.randint(100, 999)}"
-
-    usuario_in = UsuarioCreate(
-        nombre_completo=payload.nombreCompleto,
-        nombre_usuario=username,
-        correo=correo_norm,
-        contrasena="root111",
-        pais="Ecuador",
-        ciudad=payload.ciudad or "Quito",
-        telefono=payload.telefono,
-        cedula=payload.cedula,
-        direccion=payload.direccion,
-        descripcion="Cuenta creada rápidamente desde recepción",
-    )
-    usuario_guardado = UsuarioService.registrar(db, usuario_in, asignar_rol_cliente=True)
-
-    moto_in = MotoCreate(
-        placa=placa_norm,
-        marca=payload.marca,
-        modelo=payload.modelo,
-        anio=payload.anio or 2024,
-        kilometraje=payload.kilometraje or 0,
-        cilindraje=payload.cilindraje or 150,
-        id_usuario=usuario_guardado.id_usuario,
-        nombre_moto=payload.nombreMoto or f"{payload.marca} {payload.modelo}",
-        tipo_moto=payload.tipoMoto or "Urbana",
-        ruta_imagen_motos=payload.rutaImagenMotos,
-    )
-    moto_guardada = MotoService.crear(db, moto_in)
-
-    return {
-        "usuario": usuario_guardado.to_dict(include_roles=True),
-        "moto": moto_guardada.to_dict(),
-        "mensaje": "Cuenta y moto creadas exitosamente. Contraseña temporal: root111",
-    }
 

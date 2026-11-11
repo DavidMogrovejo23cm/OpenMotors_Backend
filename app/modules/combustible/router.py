@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.combustible.models import CargaCombustible, AppConfig
 from app.modules.combustible.schemas import CargaCombustibleCreate, PrecioCombustibleUpdate
-from app.modules.motos.models import Moto
+from app.modules.vehiculos.models import Vehiculo
 from app.modules.mantenimiento.service import AlertaMantenimientoService
 
 combustible_router = APIRouter(prefix="/api/combustible", tags=["Combustible"])
@@ -39,11 +39,11 @@ def listar_cargas(db: Session = Depends(get_db)):
     return [c.to_dict() for c in cargas]
 
 
-@combustible_router.get("/moto/{id_moto}")
-def listar_cargas_por_moto(id_moto: int, db: Session = Depends(get_db)):
+@combustible_router.get("/vehiculo/{id_vehiculo}")
+def listar_cargas_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
     cargas = (
         db.query(CargaCombustible)
-        .filter(CargaCombustible.id_moto == id_moto)
+        .filter(CargaCombustible.id_vehiculo == id_vehiculo)
         .order_by(CargaCombustible.fecha.desc(), CargaCombustible.id.desc())
         .all()
     )
@@ -78,25 +78,25 @@ def registrar_carga_combustible(payload: CargaCombustibleCreate, db: Session = D
         except Exception:
             fecha_parsed = date.today()
 
-    moto = db.query(Moto).filter(Moto.id_moto == payload.id_moto).first()
-    placa_final = payload.placa or (moto.placa if moto else "")
+    vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
+    placa_final = payload.placa or (vehiculo.placa if vehiculo else "")
 
     nueva = CargaCombustible(
-        id_moto=payload.id_moto,
+        id_vehiculo=payload.id_vehiculo,
         placa=placa_final,
         fecha=fecha_parsed,
         litros=float(payload.litros),
         costo_total=float(payload.costo_total),
         km_actual=int(payload.km_actual),
-        km_anterior=int(payload.km_anterior or (moto.kilometraje if moto and moto.kilometraje else 0)),
+        km_anterior=int(payload.km_anterior or (vehiculo.kilometraje if vehiculo and vehiculo.kilometraje else 0)),
         notas=payload.notas,
     )
     db.add(nueva)
 
-    if moto and (moto.kilometraje is None or payload.km_actual > moto.kilometraje):
-        moto.kilometraje = payload.km_actual
+    if vehiculo and (vehiculo.kilometraje is None or payload.km_actual > vehiculo.kilometraje):
+        vehiculo.kilometraje = payload.km_actual
         db.flush()
-        AlertaMantenimientoService.verificar_y_enviar_alertas(db, moto)
+        AlertaMantenimientoService.verificar_y_enviar_alertas(db, vehiculo)
 
     db.commit()
     db.refresh(nueva)

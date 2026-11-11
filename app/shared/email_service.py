@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 import requests
 from app.core.config import settings
 
-logger = logging.getLogger("gmotors.email")
+logger = logging.getLogger("openauto.email")
 
 RESEND_URL = "https://api.resend.com/emails"
 SENDGRID_URL = "https://api.sendgrid.com/v3/mail/send"
@@ -47,7 +47,7 @@ class EmailService:
     """
 
     def enviar(self, to: str, subject: str, html_body: str) -> bool:
-        if not to or not to.strip() or to.strip().endswith("@gmotors.local"):
+        if not to or not to.strip() or to.strip().endswith("@openauto.local"):
             return False
         to = to.strip()
         sender_email = (
@@ -55,7 +55,7 @@ class EmailService:
             if settings.MAIL_USERNAME and settings.MAIL_USERNAME.strip()
             else "info@openmotor.com"
         )
-        from_name = settings.MAIL_FROM_NAME or "Open Motors"
+        from_name = settings.MAIL_FROM_NAME or "Open Auto"
 
         # 1) Brevo HTTP API
         if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
@@ -158,7 +158,7 @@ class EmailService:
         enlace = (
             f"{PORTAL_URL}/restablecer?token={token}"
             if (plataforma or "").lower() == "web"
-            else f"gmotors://reset-password?token={token}"
+            else f"openauto://reset-password?token={token}"
         )
         html_body = self._html_base(
             "Recupera tu contraseña",
@@ -167,24 +167,24 @@ class EmailService:
             enlace,
             "Este enlace expira en 1 hora. Si no solicitaste esto, ignora este correo.",
         )
-        return self.enviar(correo, "Restablecer contraseña — Open Motors", html_body)
+        return self.enviar(correo, "Restablecer contraseña — Open Auto", html_body)
 
     # ── 2. Bienvenida ─────────────────────────────────────────────────────────
     def enviar_bienvenida(self, correo: str, nombre: str) -> bool:
         html_body = self._html_base(
-            "¡Bienvenido a Open Motors!",
+            "¡Bienvenido a Open Auto!",
             f"Hola <strong>{self._esc(nombre)}</strong>, tu cuenta ha sido creada exitosamente. "
-            "Ya puedes registrar tus motos, ver tu historial de servicios y acumular puntos de fidelidad.",
+            "Ya puedes registrar tus vehiculos, ver tu historial de servicios y acumular puntos de fidelidad.",
             "Ir al portal",
             PORTAL_URL,
             "Ante cualquier consulta, escríbenos a info@openmotor.com",
         )
-        return self.enviar(correo, "Bienvenido a Open Motors 🏍️", html_body)
+        return self.enviar(correo, "Bienvenido a Open Auto 🚗", html_body)
 
     # ── 3. Prueba de correo ───────────────────────────────────────────────────
     def enviar_email_prueba(self, destino: str) -> bool:
         html_body = self._html_base(
-            "Prueba de Correo — Open Motors",
+            "Prueba de Correo — Open Auto",
             "Este correo confirma que el servidor de correo en Python <strong>está funcionando correctamente</strong>.",
             "Ver portal",
             PORTAL_URL,
@@ -192,7 +192,7 @@ class EmailService:
         )
         return self.enviar(
             destino,
-            f"✓ Prueba Email — Open Motors ({datetime.now().isoformat(timespec='seconds')})",
+            f"✓ Prueba Email — Open Auto ({datetime.now().isoformat(timespec='seconds')})",
             html_body,
         )
 
@@ -210,7 +210,7 @@ class EmailService:
             "<tr><td style='background:#0C0C10;padding:24px 36px'>"
             "<table width='100%' cellpadding='0' cellspacing='0'><tr>"
             "<td><p style='margin:0;color:#fff;font-size:22px;font-weight:900;letter-spacing:-0.5px'>"
-            "Gorila <span style='color:#E11428'>Motos</span></p>"
+            "Gorila <span style='color:#E11428'>Vehiculos</span></p>"
             "<p style='margin:4px 0 0;color:rgba(255,255,255,0.35);font-size:10px;letter-spacing:2px;text-transform:uppercase'>Taller Mecánico · Cuenca, Ecuador</p>"
             "</td>"
             "<td align='right'><span style='background:rgba(225,20,40,0.15);color:#E11428;font-size:9px;font-weight:800;"
@@ -219,13 +219,13 @@ class EmailService:
             f"<tr><td style='padding:32px 36px 8px'><h2 style='margin:0 0 16px;color:#111;font-size:22px;font-weight:900'>{self._esc(asunto)}</h2></td></tr>"
             f"<tr><td style='padding:0 36px 28px'><div style='color:#444;font-size:15px;line-height:1.7'>{formatted}</div></td></tr>"
             f"<tr><td style='padding:0 36px 32px'><a href='{PORTAL_URL}' style='display:inline-block;background:#E11428;color:#fff;"
-            "text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;font-size:14px'>Ver portal Open Motors →</a></td></tr>"
+            "text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;font-size:14px'>Ver portal Open Auto →</a></td></tr>"
             "<tr><td style='height:1px;background:#F0F0F2'></td></tr>"
-            f"<tr><td style='background:#F9F9FB;padding:20px 36px'><p style='margin:0;color:#aaa;font-size:11px'>© {yr} Open Motors · Cuenca, Ecuador</p></td></tr>"
+            f"<tr><td style='background:#F9F9FB;padding:20px 36px'><p style='margin:0;color:#aaa;font-size:11px'>© {yr} Open Auto · Cuenca, Ecuador</p></td></tr>"
             "<tr><td style='background:#E11428;height:4px;font-size:1px'>&nbsp;</td></tr>"
             "</table></td></tr></table></body></html>"
         )
-        return self.enviar(correo, f"{asunto} — Open Motors", html_body)
+        return self.enviar(correo, f"{asunto} — Open Auto", html_body)
 
     # ── 5. Resumen de Mantenimiento (Alertas por Km) ──────────────────────────
     def enviar_resumen_mantenimiento(
@@ -240,13 +240,13 @@ class EmailService:
         *,
         destinatario: Optional[str] = None,
         nombre_cliente: Optional[str] = None,
-        moto_desc: Optional[str] = None,
+        vehiculo_desc: Optional[str] = None,
         alertas: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         correo = destinatario or correo
         nombre = nombre_cliente or nombre
-        if moto_desc and not marca:
-            partes = moto_desc.split(" ", 1)
+        if vehiculo_desc and not marca:
+            partes = vehiculo_desc.split(" ", 1)
             marca = partes[0]
             modelo = partes[1] if len(partes) > 1 else ""
         if alertas and not items:
@@ -291,7 +291,7 @@ class EmailService:
             else (f"{proximos} componente(s) próximos a vencer." if proximos > 0 else "Todo en orden.")
         )
         wa_msg = urllib.parse.quote(
-            f"¡Hola Open Motors! Quiero agendar una cita para mi moto {marca} {modelo} (placa {placa}). Kilometraje: {km_actual:,d} km."
+            f"¡Hola Open Auto! Quiero agendar una cita para mi vehiculo {marca} {modelo} (placa {placa}). Kilometraje: {km_actual:,d} km."
         )
         wa_link = f"https://wa.me/{WHATSAPP_CITAS}?text={wa_msg}"
         yr = date.today().year
@@ -301,10 +301,10 @@ class EmailService:
             "<body style='margin:0;padding:0;background:#050505;font-family:Arial,sans-serif;color:#fff'>"
             "<div style='padding:40px 16px'><div style='max-width:600px;margin:0 auto;background:#0A0A0E;border:1px solid #1A1A24;border-radius:12px;overflow:hidden'>"
             "<div style='background:#15151D;padding:30px 40px;border-bottom:1px solid rgba(225,20,40,0.2)'>"
-            "<h1 style='margin:0;font-size:28px;font-weight:900;color:#fff'>GORILA <span style='color:#E11428'>MOTOS</span></h1>"
+            "<h1 style='margin:0;font-size:28px;font-weight:900;color:#fff'>GORILA <span style='color:#E11428'>VEHÍCULOS</span></h1>"
             "<p style='margin:5px 0 0;color:#8B8FA8;font-size:12px;letter-spacing:3px;text-transform:uppercase'>Alerta de Mantenimiento</p></div>"
             "<div style='padding:40px'>"
-            f"<h2 style='margin:0 0 20px;font-size:22px;font-weight:800;color:#fff'>{'⚠️ ' if vencidos > 0 else ''}Tu moto necesita mantenimiento</h2>"
+            f"<h2 style='margin:0 0 20px;font-size:22px;font-weight:800;color:#fff'>{'⚠️ ' if vencidos > 0 else ''}Tu vehiculo necesita mantenimiento</h2>"
             f"<p style='color:#A1A5B5;font-size:15px;line-height:1.6'>Saludos <strong>{self._esc(nombre)}</strong>, tu <strong>{self._esc(marca)} {self._esc(modelo)}</strong> "
             f"(placa <strong>{self._esc(placa)}</strong>) con <strong>{km_actual:,d} km</strong> registra el siguiente estado técnico:</p>"
             "<div style='background:#111118;border:1px solid #1F1F2E;border-radius:10px;padding:20px;margin:20px 0'>"
@@ -313,9 +313,9 @@ class EmailService:
             + "".join(filas)
             + "</table></div>"
             f"<div style='text-align:center;margin:32px 0 12px'><a href='{wa_link}' style='display:inline-block;background:#E11428;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:800'>Agendar Cita Ahora</a></div>"
-            f"</div><div style='background:#08080C;padding:20px 40px;text-align:center'><p style='margin:0;color:#666;font-size:12px'>© {yr} Open Motors</p></div></div></div></body></html>"
+            f"</div><div style='background:#08080C;padding:20px 40px;text-align:center'><p style='margin:0;color:#666;font-size:12px'>© {yr} Open Auto</p></div></div></div></body></html>"
         )
-        asunto = f"{'⚠️ ' if vencidos > 0 else ''}Mantenimiento requerido: {placa} — Open Motors"
+        asunto = f"{'⚠️ ' if vencidos > 0 else ''}Mantenimiento requerido: {placa} — Open Auto"
         return self.enviar(correo, asunto, html_body)
 
     # ── 6. Diagnóstico mecánico ───────────────────────────────────────────────
@@ -355,9 +355,9 @@ class EmailService:
 
         critico = malos > 0
         titulo = (
-            "Tu moto necesita atención"
+            "Tu vehiculo necesita atención"
             if critico
-            else ("Revisión con observaciones" if regulares > 0 else "Tu moto está en buen estado")
+            else ("Revisión con observaciones" if regulares > 0 else "Tu vehiculo está en buen estado")
         )
         acento = "#E11428" if critico else ("#F59E0B" if regulares > 0 else "#10B981")
         resumen = (
@@ -380,7 +380,7 @@ class EmailService:
             else ""
         )
         cuerpo = (
-            f"Hola <strong>{self._esc(nombre)}</strong>, realizamos el diagnóstico de tu moto "
+            f"Hola <strong>{self._esc(nombre)}</strong>, realizamos el diagnóstico de tu vehiculo "
             f"<strong>{self._esc(marca)} {self._esc(modelo)}</strong> (placa <strong>{self._esc(placa)}</strong>) "
             f"con {km_ingreso or 0:,d} km.<br><br>"
             f"<span style='color:{acento};font-weight:800'>{resumen}</span>{obs_nota}<br>{tabla}"
@@ -389,13 +389,13 @@ class EmailService:
             f"{'⚠️ ' if critico else ''}{titulo}",
             cuerpo,
             "Agendar servicio",
-            f"{PORTAL_URL}/mi-moto",
-            "Diagnóstico realizado por un técnico de Open Motors.",
+            f"{PORTAL_URL}/mi-vehiculo",
+            "Diagnóstico realizado por un técnico de Open Auto.",
         )
         asunto = (
-            f"⚠️ Diagnóstico: tu moto {placa} necesita atención — Open Motors"
+            f"⚠️ Diagnóstico: tu vehiculo {placa} necesita atención — Open Auto"
             if critico
-            else f"Diagnóstico de tu moto {placa} — Open Motors"
+            else f"Diagnóstico de tu vehiculo {placa} — Open Auto"
         )
         return self.enviar(correo, asunto, html_body)
 
@@ -405,7 +405,7 @@ class EmailService:
         if not cliente or not getattr(cliente, "correo", None):
             return False
         correo = cliente.correo
-        placa = registro.moto.placa if getattr(registro, "moto", None) else "No registrada"
+        placa = registro.vehiculo.placa if getattr(registro, "vehiculo", None) else "No registrada"
         tipo_nombre = registro.tipo.nombre if getattr(registro, "tipo", None) else "Servicio de taller"
         total = (
             float(registro.factura.costo_total)
@@ -454,9 +454,9 @@ class EmailService:
             cuerpo,
             "Ver en el Portal",
             PORTAL_URL,
-            "Gracias por confiar en Open Motors — Cuenca, Ecuador.",
+            "Gracias por confiar en Open Auto — Cuenca, Ecuador.",
         )
-        return self.enviar(correo, f"Comprobante de servicio {ref_num} — Open Motors", html_body)
+        return self.enviar(correo, f"Comprobante de servicio {ref_num} — Open Auto", html_body)
 
     # ── 8. Comprobante de Venta Directa de Inventario ─────────────────────────
     def enviar_comprobante_inventario(
@@ -525,9 +525,9 @@ class EmailService:
             cuerpo,
             "Visitar Portal",
             PORTAL_URL,
-            "Conserve este correo como comprobante oficial de su compra en Open Motors.",
+            "Conserve este correo como comprobante oficial de su compra en Open Auto.",
         )
-        return self.enviar(correo_cliente, f"Comprobante de compra #{ref} — Open Motors", html_body)
+        return self.enviar(correo_cliente, f"Comprobante de compra #{ref} — Open Auto", html_body)
 
     # ── Helpers privados ──────────────────────────────────────────────────────
     def _html_base(
@@ -547,7 +547,7 @@ class EmailService:
             "overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)'>"
             "<tr><td style='background:#0C0C10;padding:28px 40px'>"
             "<p style='margin:0;color:#fff;font-size:22px;font-weight:900;letter-spacing:-0.5px'>"
-            "Gorila <span style='color:#E11428'>Motos</span></p>"
+            "Gorila <span style='color:#E11428'>Vehiculos</span></p>"
             "<p style='margin:4px 0 0;color:rgba(255,255,255,0.4);font-size:11px;letter-spacing:2px;text-transform:uppercase'>Sistema de gestión · Ecuador</p>"
             "</td></tr>"
             "<tr><td style='padding:36px 40px'>"
@@ -558,8 +558,8 @@ class EmailService:
             f"{nota_html}"
             "</td></tr>"
             "<tr><td style='background:#F9F9FB;padding:20px 40px;border-top:1px solid #eee'>"
-            f"<p style='margin:0;color:#aaa;font-size:11px'>© {yr} Open Motors · Cuenca, Ecuador · "
-            f"<a href='{PORTAL_URL}' style='color:#E11428'>open-motors.vercel.app</a></p>"
+            f"<p style='margin:0;color:#aaa;font-size:11px'>© {yr} Open Auto · Cuenca, Ecuador · "
+            f"<a href='{PORTAL_URL}' style='color:#E11428'>open-auto.vercel.app</a></p>"
             "</td></tr></table></td></tr></table></body></html>"
         )
 
@@ -642,13 +642,13 @@ class EmailService:
         destinatario: str,
         nombre_cliente: str,
         nombre_mecanico: str,
-        moto_desc: str,
+        vehiculo_desc: str,
         placa: str,
         kilometraje: Optional[int],
         observaciones_generales: Optional[str],
         detalles: List[Dict[str, Any]],
     ) -> bool:
-        partes = (moto_desc or "Moto").split(" ", 1)
+        partes = (vehiculo_desc or "Vehiculo").split(" ", 1)
         marca = partes[0]
         modelo = partes[1] if len(partes) > 1 else ""
         return self.enviar_diagnostico(
@@ -670,7 +670,7 @@ class EmailService:
         telefono_cliente: Optional[str],
         direccion_cliente: Optional[str],
         id_factura: int,
-        moto_desc: str,
+        vehiculo_desc: str,
         placa: str,
         encargado: str,
         tipo_servicio: str,
