@@ -27,6 +27,14 @@ recuperacion_router = APIRouter(prefix="/api/usuarios/recuperacion", tags=["Recu
 # ENDPOINTS DE USUARIOS (/api/usuarios)
 # ==========================================
 
+@usuarios_router.post("", status_code=status.HTTP_201_CREATED)
+@usuarios_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
+def registrar_usuario(payload: UsuarioCreate, db: Session = Depends(get_db)):
+    """Registro público de nuevo usuario (asigna automáticamente el rol CLIENTE)."""
+    nuevo = UsuarioService.registrar(db, payload, asignar_rol_cliente=True)
+    return nuevo.to_dict(include_roles=True)
+
+
 @usuarios_router.post("/clientes", status_code=status.HTTP_201_CREATED)
 def crear_cliente(
     payload: ClienteCreate,

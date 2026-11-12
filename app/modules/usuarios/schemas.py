@@ -8,7 +8,7 @@ class UsuarioCreate(BaseModel):
     nombre_completo: str = Field(..., validation_alias=AliasChoices("nombre_completo", "nombreCompleto"))
     nombre_usuario: str = Field(..., validation_alias=AliasChoices("nombre_usuario", "nombreUsuario"))
     correo: str
-    contrasena: str = Field(..., min_length=12, max_length=128)
+    contrasena: str = Field(..., min_length=6, max_length=128)
     pais: Optional[str] = "Ecuador"
     ciudad: Optional[str] = None
     descripcion: Optional[str] = None
@@ -26,7 +26,7 @@ class UsuarioUpdate(BaseModel):
     nombre_completo: Optional[str] = Field(default=None, validation_alias=AliasChoices("nombre_completo", "nombreCompleto"))
     nombre_usuario: Optional[str] = Field(default=None, validation_alias=AliasChoices("nombre_usuario", "nombreUsuario"))
     correo: Optional[str] = None
-    contrasena: Optional[str] = Field(default=None, min_length=12, max_length=128)
+    contrasena: Optional[str] = Field(default=None, min_length=6, max_length=128)
     pais: Optional[str] = None
     ciudad: Optional[str] = None
     descripcion: Optional[str] = None

@@ -1,6 +1,6 @@
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from pydantic import BaseModel, ConfigDict, Field, AliasChoices
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -39,11 +39,27 @@ class OfertaMasivaRequest(BaseModel):
     soloClientes: Optional[bool] = Field(default=True, validation_alias=AliasChoices("soloClientes", "solo_clientes"))
 
 
+def _enviar_lote_en_segundo_plano(destinatarios: List[Tuple[str, str]], payload: OfertaMasivaRequest) -> None:
+    for correo, nombre in destinatarios:
+        try:
+            email_service.enviar_correo_oferta(
+                destinatario=correo,
+                nombre_cliente=nombre,
+                titulo=payload.titulo,
+                mensaje=payload.mensaje,
+                descuento=payload.descuento,
+                validez=payload.validez,
+            )
+        except Exception:
+            pass
+
+
 @ofertas_router.post("/enviar")
-def enviar_oferta_individual(payload: OfertaIndividualRequest):
+def enviar_oferta_individual(payload: OfertaIndividualRequest, background_tasks: BackgroundTasks):
     if not payload.correo or not payload.correo.strip():
         return JSONResponse(status_code=400, content={"error": "El correo es obligatorio"})
-    email_service.enviar_correo_oferta(
+    background_tasks.add_task(
+        email_service.enviar_correo_oferta,
         destinatario=payload.correo.strip(),
         nombre_cliente=payload.nombre or "Cliente",
         titulo=payload.titulo or "¡Promoción Especial Open Auto!",
@@ -52,14 +68,18 @@ def enviar_oferta_individual(payload: OfertaIndividualRequest):
         validez=payload.validez,
     )
     return {
-        "mensaje": f"Oferta enviada exitosamente a {payload.correo}",
+        "mensaje": f"Oferta programada para envío en segundo plano a {payload.correo}",
         "enviados": 1,
     }
 
 
 @ofertas_router.post("/enviar-emails")
-def enviar_oferta_masiva(payload: OfertaMasivaRequest, db: Session = Depends(get_db)):
-    destinatarios = []
+def enviar_oferta_masiva(
+    payload: OfertaMasivaRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    destinatarios: List[Tuple[str, str]] = []
 
     if payload.correos:
         for c in payload.correos:
@@ -82,26 +102,11 @@ def enviar_oferta_masiva(payload: OfertaMasivaRequest, db: Session = Depends(get
             if u.correo:
                 destinatarios.append((u.correo, u.nombre_completo))
 
-    enviados = 0
-    errores = 0
-    for correo, nombre in destinatarios:
-        try:
-            email_service.enviar_correo_oferta(
-                destinatario=correo,
-                nombre_cliente=nombre,
-                titulo=payload.titulo,
-                mensaje=payload.mensaje,
-                descuento=payload.descuento,
-                validez=payload.validez,
-            )
-            enviados += 1
-        except Exception:
-            errores += 1
+    background_tasks.add_task(_enviar_lote_en_segundo_plano, destinatarios, payload)
 
     return {
-        "mensaje": f"Proceso completado. Enviados: {enviados}, Errores: {errores}",
-        "enviados": enviados,
-        "errores": errores,
+        "mensaje": f"Campaña enviada a cola en segundo plano para {len(destinatarios)} destinatarios",
+        "enviados": len(destinatarios),
         "totalDestinatarios": len(destinatarios),
     }
 

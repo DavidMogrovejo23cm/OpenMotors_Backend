@@ -25,16 +25,29 @@ class Vehiculo(Base):
     def to_dict(self) -> dict:
         data = {
             "id_vehiculo": self.id_vehiculo,
+            "id_moto": self.id_vehiculo,
+            "idMoto": self.id_vehiculo,
+            "idVehiculo": self.id_vehiculo,
             "placa": self.placa,
             "anio": self.anio,
             "marca": self.marca,
             "modelo": self.modelo,
             "nombre_vehiculo": self.nombre_vehiculo,
+            "nombre_moto": self.nombre_vehiculo,
+            "nombreMoto": self.nombre_vehiculo,
+            "nombreVehiculo": self.nombre_vehiculo,
             "tipo_vehiculo": self.tipo_vehiculo,
+            "tipo_moto": self.tipo_vehiculo,
+            "tipoMoto": self.tipo_vehiculo,
+            "tipoVehiculo": self.tipo_vehiculo,
             "kilometraje": self.kilometraje if self.kilometraje is not None else 0,
             "cilindraje": self.cilindraje if self.cilindraje is not None else 150,
             "id_usuario": self.id_usuario,
+            "idUsuario": self.id_usuario,
             "ruta_imagen_vehiculo": self.ruta_imagen_vehiculo,
+            "ruta_imagen_motos": self.ruta_imagen_vehiculo,
+            "rutaImagenMotos": self.ruta_imagen_vehiculo,
+            "rutaImagenVehiculo": self.ruta_imagen_vehiculo,
         }
         if self.usuario:
             data["usuario"] = {

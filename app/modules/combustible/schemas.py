@@ -5,7 +5,10 @@ from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 class CargaCombustibleCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    id_vehiculo: int = Field(..., validation_alias=AliasChoices("id_vehiculo", "idVehiculo"))
+    id_vehiculo: int = Field(
+        ...,
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+    )
     placa: Optional[str] = None
     fecha: Optional[str] = None
     litros: float

@@ -25,7 +25,10 @@ class RegistroCreate(BaseModel):
     descripcion: Optional[str] = None
     observaciones: Optional[str] = None
     costo_total: float = Field(default=0.0, validation_alias=AliasChoices("costo_total", "costoTotal"))
-    id_vehiculo: int = Field(..., validation_alias=AliasChoices("id_vehiculo", "idVehiculo"))
+    id_vehiculo: int = Field(
+        ...,
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+    )
     id_encargado: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_encargado", "idEncargado"))
     id_tipo: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_tipo", "idTipo"))
     id_factura: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_factura", "idFactura"))
@@ -47,7 +50,10 @@ class DetalleDiagnosticoInput(BaseModel):
 class DiagnosticoCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    id_vehiculo: int = Field(..., validation_alias=AliasChoices("id_vehiculo", "idVehiculo"))
+    id_vehiculo: int = Field(
+        ...,
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+    )
     id_mecanico: int = Field(..., validation_alias=AliasChoices("id_mecanico", "idMecanico"))
     id_registro: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_registro", "idRegistro"))
     id_recepcion: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_recepcion", "idRecepcion"))
@@ -78,7 +84,10 @@ class DiagnosticoCreate(BaseModel):
 class RecepcionCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    id_vehiculo: int = Field(..., validation_alias=AliasChoices("id_vehiculo", "idVehiculo"))
+    id_vehiculo: int = Field(
+        ...,
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+    )
     id_encargado: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_encargado", "idEncargado"))
     id_registro: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_registro", "idRegistro"))
     kilometraje: int = Field(..., ge=0)
@@ -128,7 +137,10 @@ class PresupuestoCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     id_registro: int = Field(..., validation_alias=AliasChoices("id_registro", "idRegistro"))
-    id_vehiculo: int = Field(..., validation_alias=AliasChoices("id_vehiculo", "idVehiculo"))
+    id_vehiculo: int = Field(
+        ...,
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+    )
     id_diagnostico: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_diagnostico", "idDiagnostico"))
     id_usuario: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_usuario", "idUsuario"))
     descuento: Optional[float] = 0.0

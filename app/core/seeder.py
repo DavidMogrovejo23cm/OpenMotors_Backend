@@ -272,10 +272,11 @@ def _seed_maintenance_parameters(db: Session) -> None:
     if db.query(ParametroMantenimiento).count() > 0:
         return
 
-    # Parámetros de mantenimiento preventivo para vehículos de pasajeros.
+    # Parámetros de mantenimiento preventivo para motos, vehículos ligeros y autos.
     rangos = [
         # (cc_min, cc_max, aceite, filtro_aire, bujia, frenos, transmision, valvulas, general)
-        (800, 1600, 5000, 10000, 20000, 10000, 40000, 30000, 10000),
+        (50, 250, 2500, 5000, 10000, 5000, 15000, 10000, 5000),
+        (251, 1600, 5000, 10000, 20000, 10000, 40000, 30000, 10000),
         (1601, 2500, 7000, 12000, 30000, 12000, 50000, 40000, 12000),
         (2501, 6000, 8000, 15000, 35000, 15000, 60000, 50000, 15000),
     ]

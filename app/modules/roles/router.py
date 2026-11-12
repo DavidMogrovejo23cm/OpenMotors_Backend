@@ -15,7 +15,7 @@ from app.modules.roles.schemas import (
 from app.modules.roles.service import RolService, UsuarioRolService
 
 admin_only = [Depends(require_roles("ADMIN"))]
-rol_router = APIRouter(prefix="/api/rol", tags=["Roles"], dependencies=admin_only)
+rol_router = APIRouter(prefix="/api/rol", tags=["Roles"])
 usuario_rol_router = APIRouter(prefix="/api/usuario_rol", tags=["Usuario-Rol"], dependencies=admin_only)
 
 
@@ -34,18 +34,18 @@ def obtener_rol(id_rol: int, db: Session = Depends(get_db)):
     return RolService.obtener_por_id(db, id_rol)
 
 
-@rol_router.post("", response_model=RolResponse, status_code=status.HTTP_201_CREATED)
-@rol_router.post("/", response_model=RolResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
+@rol_router.post("", response_model=RolResponse, status_code=status.HTTP_201_CREATED, dependencies=admin_only)
+@rol_router.post("/", response_model=RolResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False, dependencies=admin_only)
 def crear_rol(payload: RolCreate, db: Session = Depends(get_db)):
     return RolService.crear(db, payload.nombre, payload.id_rol)
 
 
-@rol_router.put("/{id_rol}", response_model=RolResponse)
+@rol_router.put("/{id_rol}", response_model=RolResponse, dependencies=admin_only)
 def actualizar_rol(id_rol: int, payload: RolBase, db: Session = Depends(get_db)):
     return RolService.actualizar(db, id_rol, payload.nombre)
 
 
-@rol_router.delete("/{id_rol}", status_code=status.HTTP_204_NO_CONTENT)
+@rol_router.delete("/{id_rol}", status_code=status.HTTP_204_NO_CONTENT, dependencies=admin_only)
 def eliminar_rol(id_rol: int, db: Session = Depends(get_db)):
     RolService.eliminar(db, id_rol)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

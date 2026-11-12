@@ -43,8 +43,8 @@ class UsuarioService:
             raise ConflictError("El nombre de usuario ya está en uso")
 
         raw_pwd = payload.contrasena
-        if not raw_pwd or len(raw_pwd) < 12:
-            raise BusinessValidationError("La contraseña debe tener al menos 12 caracteres")
+        if not raw_pwd or len(raw_pwd) < 6:
+            raise BusinessValidationError("La contraseña debe tener al menos 6 caracteres")
         pwd_hash = raw_pwd if is_bcrypt_hash(raw_pwd) else hash_password(raw_pwd)
 
         nuevo = Usuario(

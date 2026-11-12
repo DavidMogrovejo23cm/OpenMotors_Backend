@@ -244,6 +244,7 @@ def listar_diagnosticos_por_registro(id_registro: int, db: Session = Depends(get
 
 
 @diagnosticos_router.get("/vehiculo/{id_vehiculo}")
+@diagnosticos_router.get("/moto/{id_vehiculo}", include_in_schema=False)
 def listar_diagnosticos_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
     diags = DiagnosticoService.listar_por_vehiculo(db, id_vehiculo)
     return [d.to_dict() for d in diags]

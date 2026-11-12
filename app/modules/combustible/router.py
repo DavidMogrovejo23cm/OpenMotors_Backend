@@ -40,6 +40,7 @@ def listar_cargas(db: Session = Depends(get_db)):
 
 
 @combustible_router.get("/vehiculo/{id_vehiculo}")
+@combustible_router.get("/moto/{id_vehiculo}", include_in_schema=False)
 def listar_cargas_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
     cargas = (
         db.query(CargaCombustible)

@@ -146,3 +146,24 @@ async def actualizar_placa_por_ocr(
         "vehiculo": actualizada.to_dict(),
     }
 
+
+# Router retrocompatible para el frontend y clientes móviles que usan /api/motos
+motos_router = APIRouter(prefix="/api/motos", tags=["Motos (Compatibilidad)"])
+motos_router.add_api_route("", crear_vehiculo, methods=["POST"], status_code=status.HTTP_201_CREATED)
+motos_router.add_api_route("/", crear_vehiculo, methods=["POST"], status_code=status.HTTP_201_CREATED, include_in_schema=False)
+motos_router.add_api_route("", listar_vehiculos, methods=["GET"])
+motos_router.add_api_route("/", listar_vehiculos, methods=["GET"], include_in_schema=False)
+motos_router.add_api_route("/placa/{placa}", buscar_vehiculo_por_placa, methods=["GET"])
+motos_router.add_api_route("/buscar/placa/{placa}", buscar_vehiculo_por_placa, methods=["GET"], include_in_schema=False)
+motos_router.add_api_route("/cedula/{cedula}", buscar_vehiculos_por_cedula, methods=["GET"])
+motos_router.add_api_route("/buscar/cedula/{cedula}", buscar_vehiculos_por_cedula, methods=["GET"], include_in_schema=False)
+motos_router.add_api_route("/usuario/{id_usuario}", listar_vehiculos_por_usuario, methods=["GET"])
+motos_router.add_api_route("/{id_vehiculo}", obtener_vehiculo, methods=["GET"])
+motos_router.add_api_route("/{id_vehiculo}", actualizar_vehiculo, methods=["PUT"])
+motos_router.add_api_route("/{id_vehiculo}", eliminar_vehiculo, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT)
+motos_router.add_api_route("/upload", subir_imagen_vehiculo, methods=["POST"])
+motos_router.add_api_route("/ocr/placa", detectar_placa_ocr, methods=["POST"])
+motos_router.add_api_route("/ocr/buscar-dueno", buscar_dueno_por_imagen, methods=["POST"])
+motos_router.add_api_route("/{id_vehiculo}/ocr-placa", actualizar_placa_por_ocr, methods=["POST"])
+
+

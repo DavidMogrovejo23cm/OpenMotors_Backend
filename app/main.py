@@ -22,7 +22,8 @@ from app.modules.usuarios.router import (
     usuarios_router,
     recuperacion_router,
 )
-from app.modules.vehiculos.router import vehiculos_router
+from app.modules.usuarios.quick_router import quick_accounts_router
+from app.modules.vehiculos.router import vehiculos_router, motos_router
 from app.modules.mantenimiento.router import (
     parametros_router,
     mantenimientos_router,
@@ -96,7 +97,7 @@ app.add_middleware(
 
 
 def _is_public_route(method: str, path: str) -> bool:
-    """Verifica si una ruta es pública según las reglas de SecurityConfig.java."""
+    """Verifica si una ruta es pública según las reglas de seguridad."""
     if method == "OPTIONS":
         return True
     public_exact = {
@@ -104,15 +105,26 @@ def _is_public_route(method: str, path: str) -> bool:
         "/docs",
         "/redoc",
         "/openapi.json",
-        "/api/usuarios/login",
+        "/health",
         "/api/health",
+        "/api/usuarios/login",
         "/actuator/health",
         "/actuator/info",
     }
     if path in public_exact:
         return True
+
+    # Permitir autoregistro público de usuarios
+    if method == "POST" and path in ("/api/usuarios", "/api/usuarios/"):
+        return True
+
+    # Permitir lectura pública de catálogo de roles
+    if method == "GET" and path in ("/api/rol", "/api/rol/"):
+        return True
+
     public_prefixes = (
         "/api/usuarios/recuperacion/",
+        "/api/metrics/",
         "/images/",
         "/static/",
     )
@@ -175,8 +187,10 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 app.include_router(rol_router)
 app.include_router(usuario_rol_router)
 app.include_router(usuarios_router)
+app.include_router(quick_accounts_router)
 app.include_router(recuperacion_router)
 app.include_router(vehiculos_router)
+app.include_router(motos_router)
 app.include_router(parametros_router)
 app.include_router(mantenimientos_router)
 app.include_router(alertas_router)
