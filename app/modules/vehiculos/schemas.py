@@ -11,11 +11,11 @@ class VehiculoCreate(BaseModel):
     modelo: str
     nombre_vehiculo: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("nombre_vehiculo", "nombreVehiculo", "nombre_moto", "nombreMoto"),
+        validation_alias=AliasChoices("nombre_vehiculo", "nombreVehiculo", "nombre_carro", "nombreCarro"),
     )
     tipo_vehiculo: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("tipo_vehiculo", "tipoVehiculo", "tipo_moto", "tipoMoto"),
+        validation_alias=AliasChoices("tipo_vehiculo", "tipoVehiculo", "tipo_carro", "tipoCarro"),
     )
     kilometraje: Optional[int] = 0
     cilindraje: Optional[int] = 1600
@@ -26,7 +26,7 @@ class VehiculoCreate(BaseModel):
     ruta_imagen_vehiculo: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
-            "ruta_imagen_vehiculo", "rutaImagenVehiculo", "ruta_imagen_motos", "rutaImagenMotos"
+            "ruta_imagen_vehiculo", "rutaImagenVehiculo", "ruta_imagen_carros", "rutaImagenCarros"
         ),
     )
 
@@ -40,11 +40,11 @@ class VehiculoUpdate(BaseModel):
     modelo: Optional[str] = None
     nombre_vehiculo: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("nombre_vehiculo", "nombreVehiculo", "nombre_moto", "nombreMoto"),
+        validation_alias=AliasChoices("nombre_vehiculo", "nombreVehiculo", "nombre_carro", "nombreCarro"),
     )
     tipo_vehiculo: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("tipo_vehiculo", "tipoVehiculo", "tipo_moto", "tipoMoto"),
+        validation_alias=AliasChoices("tipo_vehiculo", "tipoVehiculo", "tipo_carro", "tipoCarro"),
     )
     kilometraje: Optional[int] = None
     cilindraje: Optional[int] = None
@@ -55,7 +55,7 @@ class VehiculoUpdate(BaseModel):
     ruta_imagen_vehiculo: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
-            "ruta_imagen_vehiculo", "rutaImagenVehiculo", "ruta_imagen_motos", "rutaImagenMotos"
+            "ruta_imagen_vehiculo", "rutaImagenVehiculo", "ruta_imagen_carros", "rutaImagenCarros"
         ),
     )
 

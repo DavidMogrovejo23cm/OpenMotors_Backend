@@ -1,11 +1,12 @@
 import secrets
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Response, status
+from typing import Optional
+from fastapi import APIRouter, Body, Depends, Request, UploadFile, File, Form, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.authorization import CurrentUser, current_user, require_roles, require_self_or_roles
-from app.core.exceptions import BusinessValidationError, EntityNotFoundError
+from app.core.exceptions import BusinessValidationError, EntityNotFoundError, PermissionDeniedError
 from app.modules.usuarios.schemas import (
     UsuarioCreate,
     UsuarioUpdate,
@@ -15,6 +16,8 @@ from app.modules.usuarios.schemas import (
     ValidarTokenRequest,
     RestablecerContrasenaRequest,
     ClienteCreate,
+    UsuarioEstadoUpdate,
+    AdminResetPasswordRequest,
 )
 from app.modules.usuarios.service import UsuarioService, RecuperacionContrasenaService
 from app.shared.storage_service import storage_service
@@ -26,6 +29,16 @@ recuperacion_router = APIRouter(prefix="/api/usuarios/recuperacion", tags=["Recu
 # ==========================================
 # ENDPOINTS DE USUARIOS (/api/usuarios)
 # ==========================================
+
+@usuarios_router.post("/registro", status_code=status.HTTP_201_CREATED)
+def registro_publico(payload: UsuarioCreate, db: Session = Depends(get_db)):
+    """RF-01: Registro público de nuevo cliente con asignación automática de rol CLIENTE."""
+    nuevo = UsuarioService.registrar(db, payload, asignar_rol_cliente=True)
+    return {
+        "mensaje": "Usuario registrado exitosamente",
+        "usuario": nuevo.to_dict(include_roles=True),
+    }
+
 
 @usuarios_router.post("", status_code=status.HTTP_201_CREATED)
 @usuarios_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
@@ -95,7 +108,7 @@ def actualizar_usuario(
     db: Session = Depends(get_db),
     actor: CurrentUser = Depends(require_self_or_roles("ADMIN", "MECANICO")),
 ):
-    puede_administrar = bool(actor.roles.intersection({"ADMIN", "MECANICO"}))
+    puede_administrar = "ADMIN" in actor.roles
     u = UsuarioService.actualizar(
         db,
         id_usuario,
@@ -121,8 +134,48 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     try:
         res = UsuarioService.login(db, identificador, payload.contrasena)
         return res
+    except PermissionDeniedError as exc:
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"error": str(exc), "mensaje": str(exc)})
     except PermissionError:
         return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content="Credenciales inválidas")
+
+
+@usuarios_router.post("/logout")
+def cerrar_sesion(
+    request: Request,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(current_user),
+):
+    """RF-02 / HU-03: Invalida el token JWT actual en servidor."""
+    return UsuarioService.cerrar_sesion(db, getattr(request.state, "user", None))
+
+
+@usuarios_router.patch("/{id_usuario}/estado")
+def cambiar_estado_usuario(
+    id_usuario: int,
+    payload: UsuarioEstadoUpdate,
+    db: Session = Depends(get_db),
+    actor: CurrentUser = Depends(require_roles("ADMIN")),
+):
+    """RF-04 / HU-05: Activa o suspende una cuenta conservando su historial."""
+    u = UsuarioService.cambiar_estado_activo(db, id_usuario, payload.activo, actor.id_usuario)
+    return u.to_dict(include_roles=True)
+
+
+@usuarios_router.post("/{id_usuario}/restablecer-clave")
+def restablecer_clave_admin(
+    id_usuario: int,
+    payload: Optional[AdminResetPasswordRequest] = Body(default=None),
+    db: Session = Depends(get_db),
+    actor: CurrentUser = Depends(require_roles("ADMIN")),
+):
+    """RF-04 / HU-05: Restablece la contraseña de un usuario e invalida sus sesiones previas."""
+    return UsuarioService.restablecer_contrasena_admin(
+        db,
+        id_usuario,
+        payload.nueva_contrasena if payload else None,
+        actor.id_usuario,
+    )
 
 
 @usuarios_router.get("/{id_usuario}/roles")
@@ -206,3 +259,30 @@ def restablecer_contrasena(payload: RestablecerContrasenaRequest, db: Session = 
     except BusinessValidationError as exc:
         return JSONResponse(status_code=400, content={"error": exc.message, "exito": False})
 
+
+
+from typing import Literal
+from pydantic import BaseModel
+from app.modules.usuarios.models import PermisoUsuario
+
+class PermisosUpdate(BaseModel):
+    permisos: list[Literal["recepcion", "inventario_entradas", "inventario_consumos"]]
+
+@usuarios_router.get("/{id_usuario}/permisos")
+def obtener_permisos_usuario(id_usuario: int, db: Session = Depends(get_db),
+                             _: CurrentUser = Depends(require_self_or_roles("ADMIN"))):
+    UsuarioService.obtener_por_id(db, id_usuario)
+    return {"permisos": sorted(p.clave for p in db.query(PermisoUsuario).filter_by(id_usuario=id_usuario).all())}
+
+@usuarios_router.put("/{id_usuario}/permisos")
+def actualizar_permisos_usuario(id_usuario: int, payload: PermisosUpdate,
+                                db: Session = Depends(get_db),
+                                _: CurrentUser = Depends(require_roles("ADMIN"))):
+    usuario = UsuarioService.obtener_por_id(db, id_usuario)
+    if payload.permisos and not any(r.estado == 1 and r.rol.nombre == "MECANICO" for r in usuario.roles):
+        raise BusinessValidationError("Las autorizaciones adicionales corresponden a una cuenta de mecánico activa")
+    usuario.permisos.clear()
+    db.flush()
+    usuario.permisos = [PermisoUsuario(clave=key) for key in sorted(set(payload.permisos))]
+    db.commit()
+    return {"permisos": sorted(p.clave for p in usuario.permisos)}

@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -41,7 +42,7 @@ class MantenimientoService:
     @staticmethod
     def listar_por_vehiculo(db: Session, id_vehiculo: int) -> List[MantenimientoRealizado]:
         return (
-            db.query(MantenimientoRealizado)
+            scoped_query(db, MantenimientoRealizado)
             .filter(MantenimientoRealizado.id_vehiculo == id_vehiculo)
             .order_by(MantenimientoRealizado.fecha.desc())
             .all()
@@ -53,7 +54,7 @@ class MantenimientoService:
     ) -> MantenimientoRealizado:
         tipo_norm = tipo.strip().upper()
         existente = (
-            db.query(MantenimientoRealizado)
+            scoped_query(db, MantenimientoRealizado)
             .filter(
                 MantenimientoRealizado.id_vehiculo == id_vehiculo,
                 MantenimientoRealizado.tipo == tipo_norm,
@@ -82,7 +83,7 @@ class MantenimientoService:
     def eliminar_por_vehiculo_y_tipo(db: Session, id_vehiculo: int, tipo: str) -> None:
         tipo_norm = tipo.strip().upper()
         regs = (
-            db.query(MantenimientoRealizado)
+            scoped_query(db, MantenimientoRealizado)
             .filter(
                 MantenimientoRealizado.id_vehiculo == id_vehiculo,
                 MantenimientoRealizado.tipo == tipo_norm,
@@ -122,7 +123,7 @@ class AlertaMantenimientoService:
         params = AlertaMantenimientoService.obtener_parametros_para_cc(db, cc)
         for p in params:
             existe = (
-                db.query(MantenimientoRealizado)
+                scoped_query(db, MantenimientoRealizado)
                 .filter(
                     MantenimientoRealizado.id_vehiculo == id_vehiculo,
                     MantenimientoRealizado.tipo == p.tipo_mantenimiento,
@@ -218,7 +219,7 @@ class AlertaMantenimientoService:
             return estados
 
         from app.modules.usuarios.models import Usuario
-        dueno = db.query(Usuario).filter(Usuario.id_usuario == vehiculo.id_usuario).first()
+        dueno = scoped_query(db, Usuario).filter(Usuario.id_usuario == vehiculo.id_usuario).first()
         if not dueno or not dueno.correo:
             return estados
 
@@ -230,7 +231,7 @@ class AlertaMantenimientoService:
         for item in alertas_activas:
             ciclo_km = item["proximoCambioKm"]
             ya_enviada = (
-                db.query(AlertaEnviada)
+                scoped_query(db, AlertaEnviada)
                 .filter(
                     AlertaEnviada.id_vehiculo == vehiculo.id_vehiculo,
                     AlertaEnviada.tipo_mantenimiento == item["tipo"],
@@ -256,7 +257,7 @@ class AlertaMantenimientoService:
                 for item in alertas_activas:
                     ciclo_km = item["proximoCambioKm"]
                     ya_enviada = (
-                        db.query(AlertaEnviada)
+                        scoped_query(db, AlertaEnviada)
                         .filter(
                             AlertaEnviada.id_vehiculo == vehiculo.id_vehiculo,
                             AlertaEnviada.tipo_mantenimiento == item["tipo"],
@@ -290,12 +291,12 @@ class CitaMantenimientoService:
         from app.modules.vehiculos.models import Vehiculo
         from app.modules.usuarios.models import Usuario
 
-        vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
+        vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
         if not vehiculo:
             raise EntityNotFoundError("Vehículo", payload.id_vehiculo)
 
         id_cli = payload.id_usuario or vehiculo.id_usuario
-        usuario = db.query(Usuario).filter(Usuario.id_usuario == id_cli).first() if id_cli else None
+        usuario = scoped_query(db, Usuario).filter(Usuario.id_usuario == id_cli).first() if id_cli else None
 
         try:
             fecha_dt = datetime.fromisoformat(payload.fecha_agendada.replace("Z", "+00:00"))
@@ -325,7 +326,7 @@ class CitaMantenimientoService:
     def listar_citas(
         db: Session, id_vehiculo: Optional[int] = None, id_usuario: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        query = db.query(CitaMantenimiento)
+        query = scoped_query(db, CitaMantenimiento)
         if id_vehiculo:
             query = query.filter(CitaMantenimiento.id_vehiculo == id_vehiculo)
         if id_usuario:

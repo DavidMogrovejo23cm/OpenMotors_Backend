@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 from typing import Optional, List, Tuple
 from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 from fastapi import APIRouter, Depends, BackgroundTasks
@@ -86,7 +87,7 @@ def enviar_oferta_masiva(
             if c and c.strip():
                 destinatarios.append((c.strip(), "Cliente"))
     elif payload.idsUsuarios:
-        usuarios = db.query(Usuario).filter(Usuario.id_usuario.in_(payload.idsUsuarios)).all()
+        usuarios = scoped_query(db, Usuario).filter(Usuario.id_usuario.in_(payload.idsUsuarios)).all()
         for u in usuarios:
             if u.correo:
                 destinatarios.append((u.correo, u.nombre_completo))
@@ -94,9 +95,9 @@ def enviar_oferta_masiva(
         if payload.soloClientes:
             rels = db.query(UsuarioRol).filter(UsuarioRol.id_rol == 2, UsuarioRol.estado == 1).all()
             ids = [r.id_usuario for r in rels]
-            usuarios = db.query(Usuario).filter(Usuario.id_usuario.in_(ids)).all() if ids else []
+            usuarios = scoped_query(db, Usuario).filter(Usuario.id_usuario.in_(ids)).all() if ids else []
         else:
-            usuarios = db.query(Usuario).all()
+            usuarios = scoped_query(db, Usuario).all()
 
         for u in usuarios:
             if u.correo:

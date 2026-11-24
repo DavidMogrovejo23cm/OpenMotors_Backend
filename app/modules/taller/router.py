@@ -1,13 +1,20 @@
-from typing import Optional, Dict, Any
+from app.core.access_scope import scoped_query
+from typing import Optional, Dict, Any, Literal
 from fastapi import APIRouter, Depends, UploadFile, File, Query, Body, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.authorization import CurrentUser, require_roles
+from app.modules.facturacion.schemas import ConfirmarPagoRequest
+from app.modules.taller.models import Registro
+from app.modules.facturacion.models import NotaDeVenta
+from app.modules.taller.pagos import registrar_abono
 from app.core.exceptions import EntityNotFoundError
 from app.modules.taller.schemas import (
     TipoCreate,
     RegistroCreate,
+    EstimacionOrdenUpdate,
     DiagnosticoCreate,
     RecepcionCreate,
     RecepcionUpdate,
@@ -113,16 +120,19 @@ def asociar_factura_a_registro(
 @registros_router.patch("/{id_registro}/estado")
 def actualizar_estado_registro(
     id_registro: int,
-    estado: Optional[int] = Query(default=None),
+    estado: Optional[int] = Query(default=None, ge=0, le=3),
     payload: Optional[Dict[str, Any]] = Body(default=None),
     db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_roles("ADMIN", "MECANICO")),
 ):
     nuevo_estado = estado
     if nuevo_estado is None and payload:
         nuevo_estado = payload.get("estado")
     if nuevo_estado is None:
         return JSONResponse(status_code=400, content={"error": "El parámetro 'estado' es obligatorio"})
-    return RegistroService.cambiar_estado(db, id_registro, int(nuevo_estado))
+    if isinstance(nuevo_estado, bool) or not isinstance(nuevo_estado, int) or nuevo_estado not in (0, 1, 2, 3):
+        return JSONResponse(status_code=400, content={"error": "Estado de trabajo inválido"})
+    return RegistroService.cambiar_estado(db, id_registro, nuevo_estado)
 
 
 @registros_router.get("/usuario/{id_usuario}")
@@ -211,6 +221,38 @@ async def buscar_historial_por_ocr(
     }
 
 
+@registros_router.get("/reportes/trabajos")
+def reporte_trabajos_por_periodo(
+    fecha_inicio: Optional[str] = Query(default=None),
+    fecha_fin: Optional[str] = Query(default=None),
+    estado: Optional[int] = Query(default=None),
+    id_encargado: Optional[int] = Query(default=None),
+    id_tipo: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_roles("ADMIN")),
+):
+    """RF-54 / HU-65: Reporte consolidado de trabajos realizados por período y filtros."""
+    return RegistroService.reporte_trabajos(
+        db,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        estado=estado,
+        id_encargado=id_encargado,
+        id_tipo=id_tipo,
+    )
+
+
+@registros_router.patch("/{id_registro}/estimacion")
+def actualizar_estimacion_orden(
+    id_registro: int,
+    payload: EstimacionOrdenUpdate,
+    db: Session = Depends(get_db),
+    actor: CurrentUser = Depends(require_roles("ADMIN", "MECANICO")),
+):
+    """RF-15 / HU-17: Actualiza la estimación de fecha y horas de trabajo de la orden."""
+    return RegistroService.actualizar_estimacion(db, id_registro, payload, actor.id_usuario)
+
+
 @registros_router.get("/{id_registro}")
 def obtener_registro(id_registro: int, db: Session = Depends(get_db)):
     try:
@@ -233,6 +275,8 @@ def obtener_plantilla_8_sistemas():
 @diagnosticos_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def crear_diagnostico(payload: DiagnosticoCreate, db: Session = Depends(get_db)):
     """Registra la revisión de los 8 sistemas, códigos DTC del escáner y problemas encontrados."""
+    if "ADMIN" not in db.info["actor"].roles:
+        payload.id_mecanico = db.info["actor"].id_usuario
     diag = DiagnosticoService.crear(db, payload)
     return diag.to_dict()
 
@@ -244,7 +288,7 @@ def listar_diagnosticos_por_registro(id_registro: int, db: Session = Depends(get
 
 
 @diagnosticos_router.get("/vehiculo/{id_vehiculo}")
-@diagnosticos_router.get("/moto/{id_vehiculo}", include_in_schema=False)
+@diagnosticos_router.get("/carro/{id_vehiculo}", include_in_schema=False)
 def listar_diagnosticos_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
     diags = DiagnosticoService.listar_por_vehiculo(db, id_vehiculo)
     return [d.to_dict() for d in diags]
@@ -416,6 +460,8 @@ def responder_presupuesto_cliente(
 @reparaciones_router.post("/bitacora", status_code=status.HTTP_201_CREATED)
 def registrar_avance_reparacion(payload: BitacoraReparacionCreate, db: Session = Depends(get_db)):
     """Registra horas trabajadas, avance técnico y fotos de la reparación (Proceso 7)."""
+    if "ADMIN" not in db.info["actor"].roles:
+        payload.id_mecanico = db.info["actor"].id_usuario
     return ReparacionService.registrar_bitacora(db, payload)
 
 
@@ -431,6 +477,8 @@ def reportar_dano_adicional(payload: DanoAdicionalCreate, db: Session = Depends(
     Reporta un nuevo daño encontrado durante la intervención mecánica (Proceso 7.1).
     Queda pendiente de autorización del cliente antes de continuar o cobrar.
     """
+    if "ADMIN" not in db.info["actor"].roles:
+        payload.id_mecanico = db.info["actor"].id_usuario
     return ReparacionService.reportar_dano_adicional(db, payload)
 
 
@@ -455,6 +503,7 @@ def registrar_control_calidad(payload: ControlCalidadCreate, db: Session = Depen
     - Si pasa (Proceso 9): Marca vehículo como LISTO PARA ENTREGA (estado 3).
     - Si no pasa (Proceso 8.1): Devuelve al mecánico para corregir sin costo extra.
     """
+    payload.id_revisor = db.info["actor"].id_usuario
     return ReparacionService.registrar_control_calidad(db, payload)
 
 
@@ -487,6 +536,7 @@ def registrar_entrega_vehiculo(payload: EntregaVehiculoCreate, db: Session = Dep
     Proceso 15: Entrega física del vehículo al cliente.
     Verifica que la orden esté pagada, registra firma de salida y reinicia ciclos de desgaste.
     """
+    payload.id_usuario_entrega = db.info["actor"].id_usuario
     return EntregaService.entregar_vehiculo(db, payload)
 
 
@@ -506,3 +556,39 @@ def listar_entregas_realizadas(db: Session = Depends(get_db)):
 
 
 
+
+
+@registros_router.post("/{id_registro}/pagos", status_code=201)
+def registrar_pago_orden(id_registro: int, payload: ConfirmarPagoRequest,
+                        db: Session = Depends(get_db),
+                        actor: CurrentUser = Depends(require_roles("ADMIN"))):
+    reg = scoped_query(db, Registro).filter(Registro.id_registro == id_registro).with_for_update(of=Registro).first()
+    if not reg:
+        raise EntityNotFoundError("Orden", id_registro)
+    nota = scoped_query(db, NotaDeVenta).filter(NotaDeVenta.id_registro == id_registro).order_by(NotaDeVenta.id_nota_venta.desc()).first()
+    if nota:
+        from app.modules.facturacion.service import NotaDeVentaService
+        payload.id_usuario_cajero = actor.id_usuario
+        NotaDeVentaService.confirmar_pago(db, nota.id_nota_venta, payload)
+    else:
+        reg.costo_total = RegistroService.construir_listado_dto(db, reg)["costo_total"]
+        registrar_abono(db, reg, payload.monto_recibido, payload.metodo_pago, actor.id_usuario, payload.numero_referencia, payload.id_operacion)
+        db.commit()
+    db.refresh(reg)
+    return RegistroService.construir_listado_dto(db, reg)
+
+
+@registros_router.get("/{id_registro}/flujo")
+def obtener_flujo_orden(id_registro: int, db: Session = Depends(get_db)):
+    from app.modules.taller.models import DiagnosticoVehiculo
+    from app.modules.inventario.service import ReservaRepuestoService
+    reg = RegistroService.obtener_por_id_dto(db, id_registro)
+    return {"registro": reg,
+        "recepcion": RecepcionService.obtener_por_registro(db, id_registro),
+        "diagnosticos": [d.to_dict() for d in DiagnosticoService.listar_por_registro(db, id_registro)],
+        "presupuestos": PresupuestoService.listar_por_registro(db, id_registro),
+        "reservas": ReservaRepuestoService.listar_reservas_por_registro(db, id_registro),
+        "bitacoras": ReparacionService.listar_bitacoras_por_registro(db, id_registro),
+        "danos": ReparacionService.listar_danos_por_registro(db, id_registro),
+        "controles": ReparacionService.listar_controles_por_registro(db, id_registro),
+        "entrega": EntregaService.obtener_entrega_por_registro(db, id_registro)}

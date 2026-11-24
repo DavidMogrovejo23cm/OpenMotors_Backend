@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 import logging
 from datetime import date, datetime
 from typing import List, Optional, Dict, Any
@@ -24,6 +25,9 @@ from app.modules.facturacion.models import Factura, DetalleFactura, NotaDeVenta
 from app.modules.mantenimiento.models import MantenimientoRealizado
 from app.modules.mantenimiento.service import AlertaMantenimientoService
 from app.shared.email_service import email_service
+
+from app.modules.taller.pagos import PagoOrden
+from app.modules.taller.estados import EstadoOrden, EstadoPago, aplicar_estado
 
 logger = logging.getLogger("openauto.taller")
 
@@ -96,10 +100,10 @@ class RegistroService:
 
     @staticmethod
     def construir_listado_dto(db: Session, reg: Registro) -> Dict[str, Any]:
-        vehiculo = reg.vehiculo or db.query(Vehiculo).filter(Vehiculo.id_vehiculo == reg.id_vehiculo).first()
+        vehiculo = reg.vehiculo or scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == reg.id_vehiculo).first()
         cliente = vehiculo.usuario if vehiculo else None
         encargado = reg.encargado or (
-            db.query(Usuario).filter(Usuario.id_usuario == reg.id_encargado).first()
+            scoped_query(db, Usuario).filter(Usuario.id_usuario == reg.id_encargado).first()
             if reg.id_encargado
             else None
         )
@@ -113,18 +117,25 @@ class RegistroService:
         costo_final = float(reg.costo_total or 0.0)
 
         if reg.id_factura:
-            factura = reg.factura or db.query(Factura).filter(Factura.id_factura == reg.id_factura).first()
+            factura = reg.factura or scoped_query(db, Factura).filter(Factura.id_factura == reg.id_factura).first()
             if factura and factura.costo_total is not None and factura.costo_total > 0:
                 costo_final = float(factura.costo_total)
             dets = (
-                db.query(DetalleFactura)
+                scoped_query(db, DetalleFactura)
                 .filter(DetalleFactura.id_factura == reg.id_factura)
                 .order_by(DetalleFactura.id_detalle.asc())
                 .all()
             )
             detalles_dto = [d.to_dict() for d in dets]
 
+        nota = scoped_query(db, NotaDeVenta).filter(NotaDeVenta.id_registro == reg.id_registro).order_by(NotaDeVenta.id_nota_venta.desc()).first()
+        if nota:
+            costo_final = float(nota.total)
+            if not reg.id_factura:
+                detalles_dto = [{"idDetalleFactura": item.id_item, "id_producto": item.id_producto, "idProducto": item.id_producto, "descripcion": item.descripcion, "cantidad": item.cantidad, "precioUnitario": item.precio_unitario, "subtotal": item.subtotal} for item in nota.items]
+        pagos = scoped_query(db, PagoOrden).filter(PagoOrden.id_registro == reg.id_registro).order_by(PagoOrden.id_pago).all()
         return {
+            "pagos": [{"id_pago": p.id_pago, "monto": float(p.monto), "metodo": p.metodo, "fecha": p.fecha.isoformat()} for p in pagos],
             "id_registro": reg.id_registro,
             "id_vehiculo": reg.id_vehiculo,
             "id_cliente": cliente.id_usuario if cliente else 0,
@@ -143,6 +154,7 @@ class RegistroService:
             "fecha_entrega_estimada": (
                 reg.fecha_entrega_estimada.isoformat() if reg.fecha_entrega_estimada else None
             ),
+            "horas_estimadas": round(float(reg.horas_estimadas), 2) if reg.horas_estimadas is not None else None,
             "fecha_completado": reg.fecha_completado.isoformat() if reg.fecha_completado else None,
             "fecha_entregado": reg.fecha_entregado.isoformat() if reg.fecha_entregado else None,
             "fecha_facturado": reg.fecha_facturado.isoformat() if reg.fecha_facturado else None,
@@ -158,20 +170,45 @@ class RegistroService:
             "costo_total": round(costo_final, 2),
             "id_factura": reg.id_factura,
             "detalles": detalles_dto,
-            "estado": reg.estado if reg.estado is not None else 1,
+            "estado": reg.estado if reg.estado is not None else 0,
+            "estado_pago": reg.estado_pago,
+            "monto_pagado": round(float(reg.monto_pagado or 0), 2),
+            "saldo_pendiente": round(max(0, costo_final - float(reg.monto_pagado or 0)), 2),
+            "revision_estado": reg.revision_estado,
+            "estado_legacy": reg.estado_legacy,
+            "flujo_integrado": reg.flujo_integrado,
         }
 
     @staticmethod
+    def _parse_estimada_estricta(val: Optional[str], fecha_ingreso: date) -> Optional[datetime]:
+        if val is None or not str(val).strip():
+            return None
+        try:
+            dt = datetime.fromisoformat(str(val).strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise BusinessValidationError("La fecha estimada de entrega tiene un formato inválido")
+        if dt.date() < fecha_ingreso:
+            raise BusinessValidationError("La fecha estimada de entrega no puede ser anterior a la fecha de ingreso")
+        return dt.replace(tzinfo=None)
+
+    @staticmethod
     def crear(db: Session, payload: Any) -> Dict[str, Any]:
-        vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
+        vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
         if not vehiculo:
             raise EntityNotFoundError("Vehiculo", payload.id_vehiculo)
+
+        fecha_ingreso = RegistroService._parse_date(payload.fecha)
+        fecha_estimada = RegistroService._parse_estimada_estricta(payload.fecha_entrega_estimada, fecha_ingreso)
+        horas_est = getattr(payload, "horas_estimadas", None)
+        if horas_est is not None and float(horas_est) < 0:
+            raise BusinessValidationError("Las horas estimadas no pueden ser negativas")
 
         km_reg = payload.kilometraje if payload.kilometraje is not None else (vehiculo.kilometraje or 0)
 
         nuevo = Registro(
-            fecha=RegistroService._parse_date(payload.fecha),
-            fecha_entrega_estimada=RegistroService._parse_datetime(payload.fecha_entrega_estimada),
+            fecha=fecha_ingreso,
+            fecha_entrega_estimada=fecha_estimada,
+            horas_estimadas=float(horas_est) if horas_est is not None else None,
             descripcion=payload.descripcion,
             observaciones=payload.observaciones,
             costo_total=float(payload.costo_total or 0.0),
@@ -180,7 +217,8 @@ class RegistroService:
             id_tipo=payload.id_tipo,
             id_factura=payload.id_factura,
             kilometraje=km_reg,
-            estado=payload.estado if payload.estado is not None else 1,
+            estado=EstadoOrden.PENDIENTE,
+            flujo_integrado=getattr(payload, "flujo_integrado", False),
         )
         db.add(nuevo)
 
@@ -196,12 +234,12 @@ class RegistroService:
 
     @staticmethod
     def listar_todos_dto(db: Session) -> List[Dict[str, Any]]:
-        regs = db.query(Registro).order_by(Registro.id_registro.desc()).all()
+        regs = scoped_query(db, Registro).order_by(Registro.id_registro.desc()).all()
         return [RegistroService.construir_listado_dto(db, r) for r in regs]
 
     @staticmethod
     def obtener_por_id_dto(db: Session, id_registro: int) -> Dict[str, Any]:
-        reg = db.query(Registro).filter(Registro.id_registro == id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro", id_registro)
         return RegistroService.construir_listado_dto(db, reg)
@@ -209,7 +247,7 @@ class RegistroService:
     @staticmethod
     def listar_por_cliente(db: Session, id_cliente: int) -> List[Dict[str, Any]]:
         regs = (
-            db.query(Registro)
+            scoped_query(db, Registro)
             .join(Vehiculo, Registro.id_vehiculo == Vehiculo.id_vehiculo)
             .filter(Vehiculo.id_usuario == id_cliente)
             .order_by(Registro.id_registro.desc())
@@ -220,7 +258,7 @@ class RegistroService:
     @staticmethod
     def listar_por_encargado(db: Session, id_encargado: int) -> List[Dict[str, Any]]:
         regs = (
-            db.query(Registro)
+            scoped_query(db, Registro)
             .filter(Registro.id_encargado == id_encargado)
             .order_by(Registro.id_registro.desc())
             .all()
@@ -231,7 +269,7 @@ class RegistroService:
     def buscar_por_placa(db: Session, placa: str) -> List[Dict[str, Any]]:
         q = (placa or "").strip().upper()
         regs = (
-            db.query(Registro)
+            scoped_query(db, Registro)
             .join(Vehiculo, Registro.id_vehiculo == Vehiculo.id_vehiculo)
             .filter(func.upper(Vehiculo.placa).contains(q))
             .order_by(Registro.id_registro.desc())
@@ -243,7 +281,7 @@ class RegistroService:
     def buscar_por_nombre_cliente(db: Session, nombre: str) -> List[Dict[str, Any]]:
         q = (nombre or "").strip().lower()
         regs = (
-            db.query(Registro)
+            scoped_query(db, Registro)
             .join(Vehiculo, Registro.id_vehiculo == Vehiculo.id_vehiculo)
             .join(Usuario, Vehiculo.id_usuario == Usuario.id_usuario)
             .filter(func.lower(Usuario.nombre_completo).contains(q))
@@ -254,13 +292,24 @@ class RegistroService:
 
     @staticmethod
     def asociar_factura(db: Session, id_registro: int, id_factura: int) -> Dict[str, Any]:
-        reg = db.query(Registro).filter(Registro.id_registro == id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro", id_registro)
-        factura = db.query(Factura).filter(Factura.id_factura == id_factura).first()
+        factura = scoped_query(db, Factura).filter(Factura.id_factura == id_factura).first()
         if not factura:
             raise EntityNotFoundError("Factura", id_factura)
 
+        if float(reg.monto_pagado or 0) > 0:
+            raise BusinessValidationError("No se puede reemplazar el comprobante de una orden con pagos")
+        if db.query(Registro).filter(Registro.id_factura == id_factura, Registro.id_registro != id_registro).first():
+            raise BusinessValidationError("El comprobante ya pertenece a otra orden")
+        from app.modules.inventario.movimientos import OperacionInventario
+        from app.modules.inventario.models import MovimientoKardex
+        for detail in db.query(DetalleFactura).filter_by(id_factura=id_factura).all():
+            operation = db.get(OperacionInventario, f"detalle:{detail.id_detalle}")
+            if operation and operation.resultado.get("id_movimiento"):
+                mov = db.get(MovimientoKardex, operation.resultado["id_movimiento"])
+                if mov: mov.id_registro = id_registro
         reg.id_factura = id_factura
         if factura.costo_total and factura.costo_total > 0:
             reg.costo_total = factura.costo_total
@@ -270,20 +319,20 @@ class RegistroService:
 
     @staticmethod
     def cambiar_estado(db: Session, id_registro: int, nuevo_estado: int) -> Dict[str, Any]:
-        reg = db.query(Registro).filter(Registro.id_registro == id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro", id_registro)
 
         # Regla de Proceso 2.1: Bloquear avance si la recepción no está completa (4 fotos y firma)
-        if reg.estado == 1 and nuevo_estado > 1:
+        if reg.estado == EstadoOrden.PENDIENTE and nuevo_estado != EstadoOrden.PENDIENTE:
             rec = (
-                db.query(RecepcionVehiculo)
+                scoped_query(db, RecepcionVehiculo)
                 .filter(RecepcionVehiculo.id_registro == id_registro)
                 .first()
             )
             if not rec:
                 rec = (
-                    db.query(RecepcionVehiculo)
+                    scoped_query(db, RecepcionVehiculo)
                     .filter(RecepcionVehiculo.id_vehiculo == reg.id_vehiculo)
                     .order_by(RecepcionVehiculo.fecha_ingreso.desc())
                     .first()
@@ -294,27 +343,20 @@ class RegistroService:
                     f"Proceso 2.1: No se permite avanzar la orden a la siguiente fase sin completar la recepción. Faltan: {faltantes_txt}"
                 )
 
-        ahora = datetime.now()
-        reg.estado = nuevo_estado
-        if nuevo_estado == 2 and not reg.fecha_completado:
-            reg.fecha_completado = ahora
-        elif nuevo_estado == 3 and not reg.fecha_entregado:
-            if not reg.fecha_completado:
-                reg.fecha_completado = ahora
-            reg.fecha_entregado = ahora
-        elif nuevo_estado == 4:
-            if not reg.fecha_completado:
-                reg.fecha_completado = ahora
-            if not reg.fecha_entregado:
-                reg.fecha_entregado = ahora
-            reg.fecha_facturado = ahora
+        if reg.flujo_integrado:
+            from app.modules.taller.flujo import validar_etapa
+            if nuevo_estado == 3 and reg.estado != 3:
+                raise BusinessValidationError("Registre la entrega con la firma y datos de quien recibe")
+            if nuevo_estado == 1: validar_etapa(db, reg, "diagnostico")
+            if nuevo_estado == 2: validar_etapa(db, reg, "cobro")
+        aplicar_estado(reg, nuevo_estado)
 
         db.commit()
         db.refresh(reg)
         dto = RegistroService.construir_listado_dto(db, reg)
 
-        # Enviar factura por correo cuando pasa a estado 4 (Facturado / Entregado)
-        if nuevo_estado == 4 and dto.get("cliente_correo"):
+        # Enviar el comprobante al entregar, sin registrar un cobro adicional.
+        if nuevo_estado == EstadoOrden.ENTREGADA and dto.get("cliente_correo"):
             try:
                 email_service.enviar_factura_mantenimiento(
                     destinatario=dto["cliente_correo"],
@@ -338,11 +380,138 @@ class RegistroService:
 
     @staticmethod
     def eliminar(db: Session, id_registro: int) -> None:
-        reg = db.query(Registro).filter(Registro.id_registro == id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro", id_registro)
+        if float(reg.monto_pagado or 0) > 0:
+            raise BusinessValidationError("No se puede eliminar una orden con pagos registrados")
         db.delete(reg)
         db.commit()
+
+    @staticmethod
+    def actualizar_estimacion(db: Session, id_registro: int, payload: Any, actor_id: int) -> Dict[str, Any]:
+        """RF-15 / HU-17: Actualiza la fecha y horas estimadas de una orden abierta."""
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == id_registro).first()
+        if not reg:
+            raise EntityNotFoundError("Registro", id_registro)
+        if reg.estado == EstadoOrden.ENTREGADA:
+            raise BusinessValidationError("No se puede modificar la estimación de una orden ya entregada")
+
+        fecha_ingreso = reg.fecha or date.today()
+        if payload.fecha_entrega_estimada is not None:
+            reg.fecha_entrega_estimada = RegistroService._parse_estimada_estricta(
+                payload.fecha_entrega_estimada, fecha_ingreso
+            )
+        if payload.horas_estimadas is not None:
+            if float(payload.horas_estimadas) < 0:
+                raise BusinessValidationError("Las horas estimadas no pueden ser negativas")
+            reg.horas_estimadas = round(float(payload.horas_estimadas), 2)
+
+        from app.modules.sistema.auditoria import registrar_auditoria
+        registrar_auditoria(
+            db,
+            actor_id,
+            "ORDEN_ESTIMACION_ACTUALIZADA",
+            "Registro",
+            reg.id_registro,
+            f"Estimación actualizada para orden #{reg.id_registro}: "
+            f"entrega={reg.fecha_entrega_estimada.isoformat() if reg.fecha_entrega_estimada else 'N/A'}, "
+            f"horas={reg.horas_estimadas}",
+        )
+        db.commit()
+        db.refresh(reg)
+        return RegistroService.construir_listado_dto(db, reg)
+
+    @staticmethod
+    def reporte_trabajos(
+        db: Session,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+        estado: Optional[int] = None,
+        id_encargado: Optional[int] = None,
+        id_tipo: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """RF-54 / HU-65: Genera reporte consolidado de trabajos por período y filtros."""
+        fi: Optional[date] = None
+        ff: Optional[date] = None
+        if fecha_inicio:
+            try:
+                fi = date.fromisoformat(fecha_inicio[:10])
+            except ValueError:
+                raise BusinessValidationError("La fecha_inicio debe tener formato AAAA-MM-DD")
+        if fecha_fin:
+            try:
+                ff = date.fromisoformat(fecha_fin[:10])
+            except ValueError:
+                raise BusinessValidationError("La fecha_fin debe tener formato AAAA-MM-DD")
+        if fi and ff and fi > ff:
+            raise BusinessValidationError("La fecha de inicio no puede ser mayor que la fecha final")
+
+        query = scoped_query(db, Registro)
+        if fi:
+            query = query.filter(Registro.fecha >= fi)
+        if ff:
+            query = query.filter(Registro.fecha <= ff)
+        if estado is not None:
+            if estado not in (0, 1, 2, 3):
+                raise BusinessValidationError("Estado de trabajo inválido")
+            query = query.filter(Registro.estado == estado)
+        if id_encargado is not None:
+            query = query.filter(Registro.id_encargado == id_encargado)
+        if id_tipo is not None:
+            query = query.filter(Registro.id_tipo == id_tipo)
+
+        regs = query.order_by(Registro.fecha.desc(), Registro.id_registro.desc()).all()
+        conteo = {0: 0, 1: 0, 2: 0, 3: 0}
+        total_facturado = 0.0
+        total_cobrado = 0.0
+        total_pendiente = 0.0
+        horas_totales = 0.0
+        items = []
+
+        for reg in regs:
+            dto = RegistroService.construir_listado_dto(db, reg)
+            est = int(dto.get("estado") or 0)
+            conteo[est] = conteo.get(est, 0) + 1
+            costo = float(dto.get("costo_total") or 0.0)
+            pagado = float(dto.get("monto_pagado") or 0.0)
+            saldo = float(dto.get("saldo_pendiente") or 0.0)
+            horas_orden = sum(
+                float(b.horas_trabajadas or 0.0)
+                for b in db.query(BitacoraReparacion).filter(BitacoraReparacion.id_registro == reg.id_registro).all()
+            )
+            total_facturado += costo
+            total_cobrado += pagado
+            total_pendiente += saldo
+            horas_totales += horas_orden
+            items.append({
+                **dto,
+                "horas_trabajadas": round(horas_orden, 2),
+            })
+
+        return {
+            "filtros": {
+                "fecha_inicio": fi.isoformat() if fi else None,
+                "fecha_fin": ff.isoformat() if ff else None,
+                "estado": estado,
+                "id_encargado": id_encargado,
+                "id_tipo": id_tipo,
+            },
+            "resumen": {
+                "total_ordenes": len(items),
+                "total_facturado": round(total_facturado, 2),
+                "total_cobrado": round(total_cobrado, 2),
+                "total_pendiente": round(total_pendiente, 2),
+                "horas_trabajadas_totales": round(horas_totales, 2),
+                "conteo_por_estado": {
+                    "pendiente": conteo[0],
+                    "en_proceso": conteo[1],
+                    "finalizada": conteo[2],
+                    "entregada": conteo[3],
+                },
+            },
+            "items": items,
+        }
 
 
 class DiagnosticoService:
@@ -449,19 +618,54 @@ class DiagnosticoService:
 
     @staticmethod
     def crear(db: Session, payload: Any) -> DiagnosticoVehiculo:
-        vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
+        vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
         if not vehiculo:
             raise EntityNotFoundError("Vehículo", payload.id_vehiculo)
 
-        mecanico = db.query(Usuario).filter(Usuario.id_usuario == payload.id_mecanico).first()
-
+        mecanico = scoped_query(db, Usuario).filter(Usuario.id_usuario == payload.id_mecanico).first()
+        if not mecanico:
+            raise EntityNotFoundError("Responsable del diagnóstico", payload.id_mecanico)
+        if not any(link.estado == 1 and link.rol and link.rol.nombre in ("ADMIN", "MECANICO") for link in mecanico.roles):
+            raise BusinessValidationError("El responsable debe ser un mecánico o administrador activo")
+        if not payload.id_registro and not payload.id_recepcion:
+            raise BusinessValidationError("Seleccione la orden o recepción correspondiente al diagnóstico")
+        rec = None
+        if payload.id_recepcion:
+            rec = scoped_query(db, RecepcionVehiculo).filter_by(id_recepcion=payload.id_recepcion).first()
+            if not rec or rec.id_vehiculo != payload.id_vehiculo:
+                raise BusinessValidationError("La recepción no corresponde al vehículo del diagnóstico")
+            if payload.id_registro and rec.id_registro != payload.id_registro:
+                raise BusinessValidationError("La recepción no corresponde a la orden del diagnóstico")
+            payload.id_registro = rec.id_registro
+        reg = scoped_query(db, Registro).filter_by(id_registro=payload.id_registro).first()
+        if not reg or reg.id_vehiculo != payload.id_vehiculo:
+            raise BusinessValidationError("El diagnóstico debe corresponder a la orden y vehículo seleccionados")
+        if reg.estado in (EstadoOrden.FINALIZADA, EstadoOrden.ENTREGADA):
+            raise BusinessValidationError("No se puede diagnosticar una orden finalizada o entregada")
+        if rec is None:
+            rec = scoped_query(db, RecepcionVehiculo).filter_by(id_registro=reg.id_registro).order_by(RecepcionVehiculo.id_recepcion.desc()).first()
+        if not rec or not rec.esta_completa:
+            raise BusinessValidationError("Complete la recepción con las cuatro fotos y la firma del cliente")
+        payload.id_recepcion = rec.id_recepcion
+        if payload.kilometraje_ingreso is not None and payload.kilometraje_ingreso < rec.kilometraje:
+            raise BusinessValidationError("El kilometraje del diagnóstico no puede ser menor al de recepción")
+        if not any(str(text or "").strip() for text in (
+            payload.observaciones_generales, payload.problemas_adicionales,
+            payload.descripcion_escaner, *(d.observacion for d in payload.detalles),
+        )):
+            raise BusinessValidationError("Describa los hallazgos del diagnóstico")
+        if payload.origen_diagnostico in ("ESCANER", "AMBOS") and not any(
+            str(text or "").strip() for text in (payload.codigos_dtc, payload.descripcion_escaner)
+        ):
+            raise BusinessValidationError("Registre los códigos o resultados observados en el escáner")
         nuevo = DiagnosticoVehiculo(
             id_vehiculo=payload.id_vehiculo,
             id_mecanico=payload.id_mecanico,
+            origen_diagnostico=payload.origen_diagnostico,
             id_registro=getattr(payload, "id_registro", None),
             id_recepcion=getattr(payload, "id_recepcion", None),
             fecha=datetime.now(),
-            kilometraje_ingreso=payload.kilometraje_ingreso or vehiculo.kilometraje or 0,
+            kilometraje_ingreso=payload.kilometraje_ingreso if payload.kilometraje_ingreso is not None else rec.kilometraje,
             escaner_utilizado=getattr(payload, "escaner_utilizado", None),
             codigos_dtc=getattr(payload, "codigos_dtc", None),
             descripcion_escaner=getattr(payload, "descripcion_escaner", None),
@@ -496,19 +700,18 @@ class DiagnosticoService:
         ):
             vehiculo.kilometraje = payload.kilometraje_ingreso
 
-        # Si el diagnóstico está ligado a una orden y la orden está en estado 1 (Recepcionada),
-        # avanzarla a estado 2 (En Revisión/Diagnóstico)
+        # Iniciar el trabajo cuando el diagnóstico se vincula a una orden pendiente.
         if nuevo.id_registro:
-            reg = db.query(Registro).filter(Registro.id_registro == nuevo.id_registro).first()
-            if reg and reg.estado == 1:
-                reg.estado = 2
+            reg = scoped_query(db, Registro).filter(Registro.id_registro == nuevo.id_registro).first()
+            if reg and reg.estado == EstadoOrden.PENDIENTE:
+                aplicar_estado(reg, EstadoOrden.EN_PROCESO)
 
         db.commit()
         db.refresh(nuevo)
 
         # Enviar informe de diagnóstico por correo al dueño del auto
         try:
-            dueno = vehiculo.usuario or db.query(Usuario).filter(Usuario.id_usuario == vehiculo.id_usuario).first()
+            dueno = vehiculo.usuario or scoped_query(db, Usuario).filter(Usuario.id_usuario == vehiculo.id_usuario).first()
             if dueno and dueno.correo:
                 email_service.enviar_informe_diagnostico(
                     destinatario=dueno.correo,
@@ -528,7 +731,7 @@ class DiagnosticoService:
     @staticmethod
     def listar_por_vehiculo(db: Session, id_vehiculo: int) -> List[DiagnosticoVehiculo]:
         return (
-            db.query(DiagnosticoVehiculo)
+            scoped_query(db, DiagnosticoVehiculo)
             .filter(DiagnosticoVehiculo.id_vehiculo == id_vehiculo)
             .order_by(DiagnosticoVehiculo.fecha.desc())
             .all()
@@ -537,7 +740,7 @@ class DiagnosticoService:
     @staticmethod
     def listar_por_mecanico(db: Session, id_mecanico: int) -> List[DiagnosticoVehiculo]:
         return (
-            db.query(DiagnosticoVehiculo)
+            scoped_query(db, DiagnosticoVehiculo)
             .filter(DiagnosticoVehiculo.id_mecanico == id_mecanico)
             .order_by(DiagnosticoVehiculo.fecha.desc())
             .all()
@@ -546,7 +749,7 @@ class DiagnosticoService:
     @staticmethod
     def listar_por_registro(db: Session, id_registro: int) -> List[DiagnosticoVehiculo]:
         return (
-            db.query(DiagnosticoVehiculo)
+            scoped_query(db, DiagnosticoVehiculo)
             .filter(DiagnosticoVehiculo.id_registro == id_registro)
             .order_by(DiagnosticoVehiculo.fecha.desc())
             .all()
@@ -555,7 +758,7 @@ class DiagnosticoService:
     @staticmethod
     def obtener_por_id(db: Session, id_diagnostico: int) -> DiagnosticoVehiculo:
         diag = (
-            db.query(DiagnosticoVehiculo)
+            scoped_query(db, DiagnosticoVehiculo)
             .filter(DiagnosticoVehiculo.id_diagnostico == id_diagnostico)
             .first()
         )
@@ -567,7 +770,7 @@ class DiagnosticoService:
 class RecepcionService:
     @staticmethod
     def crear(db: Session, payload: Any) -> Dict[str, Any]:
-        vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
+        vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
         if not vehiculo:
             raise EntityNotFoundError("Vehículo", payload.id_vehiculo)
 
@@ -578,6 +781,15 @@ class RecepcionService:
             AlertaMantenimientoService.verificar_y_enviar_alertas(db, vehiculo)
 
         id_reg = payload.id_registro
+        if id_reg:
+            orden = scoped_query(db, Registro).filter_by(id_registro=id_reg).first()
+            if not orden or orden.id_vehiculo != payload.id_vehiculo:
+                raise BusinessValidationError("La recepción debe corresponder a la orden y vehículo seleccionados")
+            if orden.estado != EstadoOrden.PENDIENTE:
+                raise BusinessValidationError("La recepción solo puede registrarse en una orden pendiente")
+            if scoped_query(db, RecepcionVehiculo).filter_by(id_registro=id_reg).first():
+                raise BusinessValidationError("La orden ya tiene recepción; actualice la existente")
+            orden.kilometraje = km_ingreso
         if not id_reg and getattr(payload, "crear_orden_automatica", True):
             nueva_orden = Registro(
                 fecha=date.today(),
@@ -587,7 +799,8 @@ class RecepcionService:
                 id_vehiculo=payload.id_vehiculo,
                 id_encargado=payload.id_encargado,
                 kilometraje=km_ingreso,
-                estado=1,
+                estado=EstadoOrden.PENDIENTE,
+                flujo_integrado=True,
             )
             db.add(nueva_orden)
             db.flush()
@@ -616,11 +829,15 @@ class RecepcionService:
 
     @staticmethod
     def actualizar(db: Session, id_recepcion: int, payload: Any) -> Dict[str, Any]:
-        rec = db.query(RecepcionVehiculo).filter(RecepcionVehiculo.id_recepcion == id_recepcion).first()
+        rec = scoped_query(db, RecepcionVehiculo).filter(RecepcionVehiculo.id_recepcion == id_recepcion).first()
         if not rec:
             raise EntityNotFoundError("Recepción", id_recepcion)
 
         datos = payload if isinstance(payload, dict) else payload.model_dump(exclude_unset=True)
+        if rec.registro and rec.registro.estado != EstadoOrden.PENDIENTE:
+            raise BusinessValidationError("La recepción no puede modificarse después de iniciar el diagnóstico")
+        if "id_registro" in datos and datos["id_registro"] != rec.id_registro:
+            raise BusinessValidationError("No se puede cambiar la orden de una recepción registrada")
         for key, val in datos.items():
             if hasattr(rec, key) and val is not None:
                 setattr(rec, key, val)
@@ -628,6 +845,8 @@ class RecepcionService:
         if rec.kilometraje and rec.vehiculo:
             if rec.vehiculo.kilometraje is None or rec.kilometraje > rec.vehiculo.kilometraje:
                 rec.vehiculo.kilometraje = rec.kilometraje
+        if rec.registro:
+            rec.registro.kilometraje = rec.kilometraje
 
         db.commit()
         db.refresh(rec)
@@ -635,20 +854,20 @@ class RecepcionService:
 
     @staticmethod
     def obtener_por_id(db: Session, id_recepcion: int) -> Dict[str, Any]:
-        rec = db.query(RecepcionVehiculo).filter(RecepcionVehiculo.id_recepcion == id_recepcion).first()
+        rec = scoped_query(db, RecepcionVehiculo).filter(RecepcionVehiculo.id_recepcion == id_recepcion).first()
         if not rec:
             raise EntityNotFoundError("Recepción", id_recepcion)
         return rec.to_dict()
 
     @staticmethod
     def listar_todas(db: Session) -> List[Dict[str, Any]]:
-        recs = db.query(RecepcionVehiculo).order_by(RecepcionVehiculo.fecha_ingreso.desc()).all()
+        recs = scoped_query(db, RecepcionVehiculo).order_by(RecepcionVehiculo.fecha_ingreso.desc()).all()
         return [r.to_dict() for r in recs]
 
     @staticmethod
     def listar_por_vehiculo(db: Session, id_vehiculo: int) -> List[Dict[str, Any]]:
         recs = (
-            db.query(RecepcionVehiculo)
+            scoped_query(db, RecepcionVehiculo)
             .filter(RecepcionVehiculo.id_vehiculo == id_vehiculo)
             .order_by(RecepcionVehiculo.fecha_ingreso.desc())
             .all()
@@ -658,7 +877,7 @@ class RecepcionService:
     @staticmethod
     def obtener_por_registro(db: Session, id_registro: int) -> Optional[Dict[str, Any]]:
         rec = (
-            db.query(RecepcionVehiculo)
+            scoped_query(db, RecepcionVehiculo)
             .filter(RecepcionVehiculo.id_registro == id_registro)
             .first()
         )
@@ -666,7 +885,7 @@ class RecepcionService:
 
     @staticmethod
     def validar_completitud(db: Session, id_recepcion: int) -> Dict[str, Any]:
-        rec = db.query(RecepcionVehiculo).filter(RecepcionVehiculo.id_recepcion == id_recepcion).first()
+        rec = scoped_query(db, RecepcionVehiculo).filter(RecepcionVehiculo.id_recepcion == id_recepcion).first()
         if not rec:
             raise EntityNotFoundError("Recepción", id_recepcion)
         return {
@@ -680,21 +899,35 @@ class RecepcionService:
 class PresupuestoService:
     @staticmethod
     def generar_numero_presupuesto(db: Session) -> str:
-        anio = datetime.now().year
-        prefijo = f"PRE-{anio}-"
-        total = db.query(Presupuesto).filter(Presupuesto.numero_presupuesto.like(f"{prefijo}%")).count()
-        return f"{prefijo}{total + 1:04d}"
+        from app.core.documentos import siguiente_numero
+        return siguiente_numero(db, Presupuesto, "numero_presupuesto", "PRE")
 
     @staticmethod
     def crear(db: Session, payload: Any) -> Dict[str, Any]:
-        reg = db.query(Registro).filter(Registro.id_registro == payload.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == payload.id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro / Orden de trabajo", payload.id_registro)
 
-        vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
+        vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
         if not vehiculo:
             raise EntityNotFoundError("Vehículo", payload.id_vehiculo)
 
+        reg = scoped_query(db, Registro).filter_by(id_registro=payload.id_registro).with_for_update(of=Registro).first()
+        if reg.flujo_integrado:
+            latest = scoped_query(db, Presupuesto).filter_by(id_registro=reg.id_registro).order_by(Presupuesto.id_presupuesto.desc()).first()
+            if latest and latest.estado != "RECHAZADO":
+                raise BusinessValidationError("Ya existe un presupuesto activo para esta orden")
+            if not payload.items:
+                raise BusinessValidationError("Agregue al menos un trabajo o repuesto al presupuesto")
+        if reg.id_vehiculo != payload.id_vehiculo:
+            raise BusinessValidationError("El presupuesto no corresponde al vehículo de la orden")
+        from app.modules.taller.flujo import validar_etapa
+        validar_etapa(db, reg, "presupuesto")
+        if reg.flujo_integrado and reg.monto_pagado:
+            raise BusinessValidationError("No se puede cambiar el presupuesto después de registrar pagos")
+        for item in payload.items:
+            if item.id_producto and item.cantidad != int(item.cantidad):
+                raise BusinessValidationError("Los repuestos de inventario requieren unidades enteras")
         numero = PresupuestoService.generar_numero_presupuesto(db)
         descuento = float(payload.descuento or 0.0)
         costo_diag = float(payload.costo_diagnostico or 0.0)
@@ -755,20 +988,20 @@ class PresupuestoService:
 
     @staticmethod
     def obtener_por_id(db: Session, id_presupuesto: int) -> Dict[str, Any]:
-        p = db.query(Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
+        p = scoped_query(db, Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
         if not p:
             raise EntityNotFoundError("Presupuesto", id_presupuesto)
         return p.to_dict()
 
     @staticmethod
     def listar_todos(db: Session) -> List[Dict[str, Any]]:
-        pres = db.query(Presupuesto).order_by(Presupuesto.id_presupuesto.desc()).all()
+        pres = scoped_query(db, Presupuesto).order_by(Presupuesto.id_presupuesto.desc()).all()
         return [p.to_dict() for p in pres]
 
     @staticmethod
     def listar_por_registro(db: Session, id_registro: int) -> List[Dict[str, Any]]:
         pres = (
-            db.query(Presupuesto)
+            scoped_query(db, Presupuesto)
             .filter(Presupuesto.id_registro == id_registro)
             .order_by(Presupuesto.id_presupuesto.desc())
             .all()
@@ -778,7 +1011,7 @@ class PresupuestoService:
     @staticmethod
     def listar_por_vehiculo(db: Session, id_vehiculo: int) -> List[Dict[str, Any]]:
         pres = (
-            db.query(Presupuesto)
+            scoped_query(db, Presupuesto)
             .filter(Presupuesto.id_vehiculo == id_vehiculo)
             .order_by(Presupuesto.id_presupuesto.desc())
             .all()
@@ -787,7 +1020,7 @@ class PresupuestoService:
 
     @staticmethod
     def enviar_al_cliente(db: Session, id_presupuesto: int) -> Dict[str, Any]:
-        p = db.query(Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
+        p = scoped_query(db, Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
         if not p:
             raise EntityNotFoundError("Presupuesto", id_presupuesto)
         if p.estado not in ("BORRADOR", "ENVIADO"):
@@ -806,7 +1039,7 @@ class PresupuestoService:
         - APROBADO_PARCIAL (Proceso 5.1): Ajuste de presupuesto, se aprueban ciertos ítems y otros se postergan.
         - RECHAZADO (Proceso 5.2): Se rechaza el presupuesto. Si aplica cobrar diagnóstico, se fija dicho costo y se entrega sin reparación.
         """
-        p = db.query(Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
+        p = scoped_query(db, Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
         if not p:
             raise EntityNotFoundError("Presupuesto", id_presupuesto)
 
@@ -816,7 +1049,9 @@ class PresupuestoService:
                 f"Decisión inválida: '{decision}'. Debe ser 'APROBADO_TOTAL', 'APROBADO_PARCIAL' o 'RECHAZADO'."
             )
 
-        reg = db.query(Registro).filter(Registro.id_registro == p.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == p.id_registro).first()
+        if reg and reg.flujo_integrado and p.estado != "ENVIADO":
+            raise BusinessValidationError("Envíe el presupuesto al cliente antes de registrar su respuesta")
         ahora = datetime.now()
         p.fecha_respuesta = ahora
         p.motivo_rechazo_ajuste = payload.motivo
@@ -828,13 +1063,15 @@ class PresupuestoService:
             p.total_aprobado = p.total_presupuestado
             if reg:
                 reg.costo_total = p.total_aprobado
-                # Si estaba en diagnóstico/recepción, pasa a en proceso / reparación (estado 2)
-                if reg.estado == 1:
-                    reg.estado = 2
+                # Iniciar una orden pendiente tras aprobar el presupuesto.
+                if reg.estado == EstadoOrden.PENDIENTE or (reg.flujo_integrado and reg.estado == EstadoOrden.FINALIZADA):
+                    aplicar_estado(reg, EstadoOrden.EN_PROCESO)
 
         elif decision == "APROBADO_PARCIAL":
             p.estado = "APROBADO_PARCIAL"
             ids_aprobados = set(payload.items_aprobados_ids or [])
+            if not ids_aprobados.issubset({item.id_item for item in p.items}):
+                raise BusinessValidationError("Los conceptos seleccionados no pertenecen a este presupuesto")
             if not ids_aprobados:
                 raise BusinessValidationError("Para aprobación parcial (Proceso 5.1) debe especificar al menos un ítem aprobado.")
 
@@ -851,8 +1088,8 @@ class PresupuestoService:
             p.total_aprobado = total_neto
             if reg:
                 reg.costo_total = p.total_aprobado
-                if reg.estado == 1:
-                    reg.estado = 2
+                if reg.estado == EstadoOrden.PENDIENTE or (reg.flujo_integrado and reg.estado == EstadoOrden.FINALIZADA):
+                    aplicar_estado(reg, EstadoOrden.EN_PROCESO)
 
         elif decision == "RECHAZADO":
             p.estado = "RECHAZADO"
@@ -867,10 +1104,11 @@ class PresupuestoService:
 
             if reg:
                 reg.costo_total = p.total_aprobado
-                # Proceso 5.2: Estado 8 = Entregado sin reparación / Presupuesto rechazado
-                reg.estado = 8
-                reg.fecha_completado = ahora
-                reg.fecha_entregado = ahora
+                # El rechazo pertenece al presupuesto; no implica entregar el vehículo.
+                # La decisión RECHAZADO permanece en el presupuesto.
+                reg.observaciones = ((reg.observaciones or "") + " | Presupuesto rechazado").strip(" |")
+                if reg.flujo_integrado:
+                    aplicar_estado(reg, EstadoOrden.FINALIZADA)
 
         db.commit()
         db.refresh(p)
@@ -889,10 +1127,12 @@ class ReparacionService:
         """
         Proceso 7: Anotar horas trabajadas, avance técnico y fotos de la reparación.
         """
-        reg = db.query(Registro).filter(Registro.id_registro == payload.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == payload.id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro de taller", payload.id_registro)
 
+        from app.modules.taller.flujo import validar_etapa
+        validar_etapa(db, reg, "reparacion")
         # Si no se pasó mecánico, hereda el encargado de la orden
         id_mec = payload.id_mecanico or reg.id_encargado
 
@@ -908,8 +1148,8 @@ class ReparacionService:
         db.add(bitacora)
 
         # Si estaba en recepción (1), pasa a en reparación (2)
-        if reg.estado == 1:
-            reg.estado = 2
+        if reg.estado == EstadoOrden.PENDIENTE:
+            aplicar_estado(reg, EstadoOrden.EN_PROCESO)
 
         db.commit()
         db.refresh(bitacora)
@@ -918,7 +1158,7 @@ class ReparacionService:
     @staticmethod
     def listar_bitacoras_por_registro(db: Session, id_registro: int) -> List[Dict[str, Any]]:
         bits = (
-            db.query(BitacoraReparacion)
+            scoped_query(db, BitacoraReparacion)
             .filter(BitacoraReparacion.id_registro == id_registro)
             .order_by(BitacoraReparacion.fecha.desc())
             .all()
@@ -931,10 +1171,12 @@ class ReparacionService:
         Proceso 7.1: Notificar hallazgo de daño adicional no contemplado inicialmente.
         Requiere aprobación del cliente antes de continuar el trabajo adicional.
         """
-        reg = db.query(Registro).filter(Registro.id_registro == payload.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == payload.id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro de taller", payload.id_registro)
 
+        from app.modules.taller.flujo import validar_etapa
+        validar_etapa(db, reg, "reparacion")
         id_mec = payload.id_mecanico or reg.id_encargado
 
         dano = DanoAdicional(
@@ -959,7 +1201,7 @@ class ReparacionService:
         Proceso 7.1: Registrar respuesta del cliente sobre el daño adicional.
         Si es aprobado, se suma el costo estimado a la orden de trabajo.
         """
-        dano = db.query(DanoAdicional).filter(DanoAdicional.id_dano == id_dano).first()
+        dano = scoped_query(db, DanoAdicional).filter(DanoAdicional.id_dano == id_dano).first()
         if not dano:
             raise EntityNotFoundError("Daño adicional", id_dano)
 
@@ -968,7 +1210,7 @@ class ReparacionService:
         dano.fecha_respuesta = datetime.now()
         dano.observaciones_cliente = payload.observaciones_cliente
 
-        reg = db.query(Registro).filter(Registro.id_registro == dano.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == dano.id_registro).first()
         if reg and aprobado and dano.costo_estimado > 0:
             reg.costo_total = round(float(reg.costo_total or 0.0) + dano.costo_estimado, 2)
 
@@ -987,7 +1229,7 @@ class ReparacionService:
     @staticmethod
     def listar_danos_por_registro(db: Session, id_registro: int) -> List[Dict[str, Any]]:
         danos = (
-            db.query(DanoAdicional)
+            scoped_query(db, DanoAdicional)
             .filter(DanoAdicional.id_registro == id_registro)
             .order_by(DanoAdicional.fecha_deteccion.desc())
             .all()
@@ -998,13 +1240,19 @@ class ReparacionService:
     def registrar_control_calidad(db: Session, payload: Any) -> Dict[str, Any]:
         """
         Proceso 8 y 8.1: Revisión post-reparación y escaneo OBD2.
-        - Si pasa (Proceso 9): Se marca orden lista para entrega (estado 3) y fecha de completado.
-        - Si no pasa (Proceso 8.1): Se devuelve al mecánico para corregir el problema SIN cobrar extra (estado 2).
+        - Si pasa (Proceso 9): Se marca orden finalizada (estado 2) y fecha de completado.
+        - Si no pasa (Proceso 8.1): Se devuelve al mecánico para corregir el problema SIN cobrar extra (estado 1).
         """
-        reg = db.query(Registro).filter(Registro.id_registro == payload.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == payload.id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro de taller", payload.id_registro)
 
+        from app.modules.taller.flujo import validar_etapa
+        validar_etapa(db, reg, "calidad")
+        if reg.estado not in (EstadoOrden.EN_PROCESO, EstadoOrden.FINALIZADA):
+            raise BusinessValidationError("El control requiere una orden en proceso o finalizada")
+        if not payload.paso_inspeccion and not (payload.motivo_devolucion or "").strip():
+            raise BusinessValidationError("Indique el motivo de devolución a reparación")
         paso = bool(payload.paso_inspeccion)
         accion = "APROBADO_LISTO" if paso else "DEVUELTO_A_MECANICO"
 
@@ -1023,14 +1271,14 @@ class ReparacionService:
 
         ahora = datetime.now()
         if paso:
-            # Proceso 9: Vehículo listo para entrega (Estado 3)
-            reg.estado = 3
+            # Proceso 9: Trabajo finalizado, listo para entrega.
+            aplicar_estado(reg, EstadoOrden.FINALIZADA)
             if not reg.fecha_completado:
                 reg.fecha_completado = ahora
             mensaje = "El vehículo superó exitosamente el control de calidad y escaneo final. Marcado como LISTO PARA ENTREGA."
         else:
             # Proceso 8.1: Devolver al mecánico sin costo extra (Garantía interna de taller)
-            reg.estado = 2  # Regresa a en proceso / reproceso
+            aplicar_estado(reg, EstadoOrden.EN_PROCESO)
             motivo = payload.motivo_devolucion or "No superó la prueba de calidad"
             if reg.observaciones:
                 reg.observaciones = f"{reg.observaciones} | [Control Calidad - Reproceso sin costo]: {motivo}"
@@ -1053,7 +1301,7 @@ class ReparacionService:
     @staticmethod
     def listar_controles_por_registro(db: Session, id_registro: int) -> List[Dict[str, Any]]:
         controles = (
-            db.query(ControlCalidad)
+            scoped_query(db, ControlCalidad)
             .filter(ControlCalidad.id_registro == id_registro)
             .order_by(ControlCalidad.fecha.desc())
             .all()
@@ -1069,26 +1317,30 @@ class EntregaService:
 
     @staticmethod
     def entregar_vehiculo(db: Session, payload: Any) -> Dict[str, Any]:
-        reg = db.query(Registro).filter(Registro.id_registro == payload.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == payload.id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro / Orden de taller", payload.id_registro)
 
+        from app.modules.taller.flujo import validar_etapa
+        validar_etapa(db, reg, "entrega")
+        if reg.flujo_integrado and (not payload.firma_cliente_entrega or not payload.persona_recibe.strip()):
+            raise BusinessValidationError("La entrega requiere nombre y firma de quien recibe")
         # Regla estricta Proceso 11.1 / Proceso 15: La orden debe estar PAGADA
-        # Se verifica si está en estado 7 (PAGADO) o si tiene Nota de Venta pagada
+        # El pago se consulta de forma independiente al estado del trabajo.
         nota = (
-            db.query(NotaDeVenta)
+            scoped_query(db, NotaDeVenta)
             .filter(NotaDeVenta.id_registro == reg.id_registro)
             .order_by(NotaDeVenta.id_nota_venta.desc())
             .first()
         )
-        esta_pagada = (reg.estado == 7) or (nota and nota.estado_pago == "PAGADO")
+        esta_pagada = reg.estado_pago == EstadoPago.PAGADO
         if not esta_pagada and reg.costo_total > 0:
             raise BusinessValidationError(
                 "Proceso 11.1 / Proceso 15: No se puede entregar el vehículo al cliente. "
                 "La orden no ha sido pagada. Debe confirmarse el pago y emitirse la Nota de Venta primero."
             )
 
-        vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == reg.id_vehiculo).first()
+        vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == reg.id_vehiculo).first()
         km_salida = int(payload.kilometraje_salida or reg.kilometraje or (vehiculo.kilometraje if vehiculo else 0) or 0)
 
         # Actualizar kilometraje del vehículo si aumentó
@@ -1096,8 +1348,9 @@ class EntregaService:
             vehiculo.kilometraje = km_salida
 
         ahora = datetime.now()
-        reg.estado = 4  # Estado 4: Entregado / Completado
-        reg.fecha_entregado = ahora
+        if reg.estado == EstadoOrden.ENTREGADA:
+            raise BusinessValidationError("El vehículo ya fue entregado")
+        aplicar_estado(reg, EstadoOrden.ENTREGADA)
 
         entrega = EntregaVehiculo(
             id_registro=reg.id_registro,
@@ -1114,7 +1367,7 @@ class EntregaService:
 
         # Reiniciar ciclo de desgaste para los repuestos instalados (Proceso 15)
         presupuesto = (
-            db.query(Presupuesto)
+            scoped_query(db, Presupuesto)
             .filter(Presupuesto.id_registro == reg.id_registro)
             .order_by(Presupuesto.id_presupuesto.desc())
             .first()
@@ -1124,7 +1377,7 @@ class EntregaService:
                 if str(item.estado_aprobacion).upper() == "APROBADO":
                     desc_pieza = item.descripcion.strip().upper()
                     mantenimiento = (
-                        db.query(MantenimientoRealizado)
+                        scoped_query(db, MantenimientoRealizado)
                         .filter(
                             MantenimientoRealizado.id_vehiculo == reg.id_vehiculo,
                             MantenimientoRealizado.tipo == desc_pieza,
@@ -1160,12 +1413,12 @@ class EntregaService:
 
     @staticmethod
     def obtener_entrega_por_registro(db: Session, id_registro: int) -> Optional[Dict[str, Any]]:
-        ent = db.query(EntregaVehiculo).filter(EntregaVehiculo.id_registro == id_registro).first()
+        ent = scoped_query(db, EntregaVehiculo).filter(EntregaVehiculo.id_registro == id_registro).first()
         return ent.to_dict() if ent else None
 
     @staticmethod
     def listar_entregas(db: Session) -> List[Dict[str, Any]]:
-        ents = db.query(EntregaVehiculo).order_by(EntregaVehiculo.fecha_entrega.desc()).all()
+        ents = scoped_query(db, EntregaVehiculo).order_by(EntregaVehiculo.fecha_entrega.desc()).all()
         return [e.to_dict() for e in ents]
 
 

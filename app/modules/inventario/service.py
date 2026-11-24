@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 from datetime import date, datetime
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
@@ -88,8 +89,8 @@ class ProductoService:
             descripcion=(payload.descripcion or "").strip(),
             costo=float(payload.costo or 0.0),
             pvp=float(payload.pvp or 0.0),
-            stock=int(payload.stock or 0),
-            stock_minimo=int(getattr(payload, "stock_minimo", 2) or 2),
+            stock=0,
+            stock_minimo=int(payload.stock_minimo if payload.stock_minimo is not None else 2),
             duracion_estimada_km=getattr(payload, "duracion_estimada_km", None),
             ubicacion_bodega=getattr(payload, "ubicacion_bodega", None),
             fecha_registro=date.today(),
@@ -98,13 +99,18 @@ class ProductoService:
             ruta_imagenproductos=payload.ruta_imagenproductos,
         )
         db.add(nuevo)
+        db.flush()
+        if payload.stock:
+            from app.modules.inventario.movimientos import mover
+            mover(db, nuevo, int(payload.stock), "SALDO_INICIAL", db.info.get("actor").id_usuario if db.info.get("actor") else None, motivo="Existencias iniciales del producto")
         db.commit()
         db.refresh(nuevo)
         return nuevo
 
     @staticmethod
     def actualizar(db: Session, id_producto: int, payload: Any) -> Producto:
-        prod = ProductoService.obtener_por_id(db, id_producto)
+        from app.modules.inventario.movimientos import bloquear_producto
+        prod = bloquear_producto(db, id_producto)
 
         if payload.codigo_personal is not None and payload.codigo_personal.strip() != prod.codigo_personal:
             nuevo_cod = payload.codigo_personal.strip()
@@ -132,8 +138,10 @@ class ProductoService:
             prod.costo = float(payload.costo)
         if payload.pvp is not None:
             prod.pvp = float(payload.pvp)
-        if payload.stock is not None:
-            prod.stock = int(payload.stock)
+        if payload.stock is not None and payload.stock != prod.stock:
+            from app.modules.inventario.movimientos import bloquear_producto, mover
+            db.flush()
+            mover(db, prod, int(payload.stock) - prod.stock, "AJUSTE_CATALOGO", db.info.get("actor").id_usuario if db.info.get("actor") else None, motivo="Ajuste de existencias desde el catálogo")
         if payload.id_categoria is not None:
             prod.id_categoria = payload.id_categoria
 
@@ -169,11 +177,15 @@ class ProductoService:
         prod = ProductoService.obtener_por_id(db, id_producto)
         if prod.ruta_imagenproductos and "supabase.co" in prod.ruta_imagenproductos:
             storage_service.delete_file(prod.ruta_imagenproductos)
+        if db.query(MovimientoKardex).filter_by(id_producto=id_producto).first() or db.query(ReservaRepuesto).filter_by(id_producto=id_producto).first():
+            raise ConflictError("El producto tiene historial; conserve el registro y actualice sus datos")
         db.delete(prod)
         db.commit()
 
     @staticmethod
     def eliminar_varios(db: Session, ids: List[int]) -> None:
+        if db.query(MovimientoKardex).filter(MovimientoKardex.id_producto.in_(ids)).first() or db.query(ReservaRepuesto).filter(ReservaRepuesto.id_producto.in_(ids)).first():
+            raise ConflictError("No se pueden eliminar productos con historial de movimientos o reservas")
         for id_prod in ids:
             prod = db.query(Producto).filter(Producto.id_producto == id_prod).first()
             if prod:
@@ -198,9 +210,6 @@ class ProductoService:
         precio_unit = float(payload.precio_unitario) if payload.precio_unitario is not None else float(prod.pvp)
         subtotal = round(cantidad * precio_unit, 2)
 
-        # Descontar stock
-        prod.stock -= cantidad
-        prod.fecha_modificacion = datetime.now()
 
         # Crear Factura con origen INVENTARIO
         nueva_factura = Factura(
@@ -227,6 +236,10 @@ class ProductoService:
             subtotal=subtotal,
         )
         db.add(detalle)
+        db.flush()
+        from app.modules.inventario.movimientos import bloquear_producto, mover, OperacionInventario
+        mov = mover(db, bloquear_producto(db, prod.id_producto), -cantidad, "VENTA_MOSTRADOR", db.info.get("actor").id_usuario if db.info.get("actor") else None, motivo=f"Venta de factura #{nueva_factura.id_factura}")
+        db.add(OperacionInventario(clave=f"detalle:{detalle.id_detalle}", huella="detalle", resultado={"id_movimiento": mov.id_movimiento, "id_factura": nueva_factura.id_factura}))
         db.commit()
         db.refresh(prod)
         db.refresh(nueva_factura)
@@ -302,16 +315,13 @@ class KardexService:
         c = (codigo or "").strip().lower()
         if not c:
             return None
-        return (
-            db.query(Producto)
-            .filter(
-                (func.lower(Producto.codigo_barras) == c)
-                | (func.lower(Producto.codigo_personal) == c)
-                | (func.lower(Producto.codigo_proveedor) == c)
-                | (func.lower(Producto.codigo_distribuidor) == c)
-            )
-            .first()
-        )
+        matches = db.query(Producto).filter((func.lower(Producto.codigo_barras) == c) | (func.lower(Producto.codigo_personal) == c)).all()
+        if not matches:
+            matches = db.query(Producto).filter((func.lower(Producto.codigo_proveedor) == c) | (func.lower(Producto.codigo_distribuidor) == c)).all()
+
+        if len(matches) > 1:
+            raise ConflictError("Código ambiguo: hay más de un producto; corrija los códigos antes de mover stock")
+        return matches[0] if matches else None
 
     @staticmethod
     def escanear(db: Session, codigo: str) -> Dict[str, Any]:
@@ -331,155 +341,13 @@ class KardexService:
 
     @staticmethod
     def registrar_entrada(db: Session, payload: Any) -> Dict[str, Any]:
-        cod = (payload.codigo_barras or "").strip()
-        if not cod:
-            raise BusinessValidationError("Debe proporcionar el código de barras escaneado.")
-
-        prod = KardexService.buscar_por_codigo(db, cod)
-
-        # Si no existe y se autoriza auto-crear:
-        if not prod:
-            if getattr(payload, "crear_si_no_existe", False) and getattr(payload, "nombre", None):
-                id_cat = payload.id_categoria
-                if not id_cat:
-                    primera_cat = db.query(Categoria).first()
-                    if not primera_cat:
-                        primera_cat = Categoria(nombre="Repuestos Generales", descripcion="Categoría general de repuestos")
-                        db.add(primera_cat)
-                        db.flush()
-                    id_cat = primera_cat.id_categoria
-
-                prod = Producto(
-                    codigo_barras=cod,
-                    codigo_personal=cod,
-                    codigo_proveedor=payload.proveedor or "PROV-001",
-                    codigo_distribuidor="DIST-001",
-                    nombre=payload.nombre.strip(),
-                    marca=payload.marca or "Genérico",
-                    proveedor=payload.proveedor,
-                    costo=float(payload.costo_unitario or 0.0),
-                    pvp=float(payload.precio_venta or 0.0),
-                    stock=0,
-                    stock_minimo=int(payload.stock_minimo or 2),
-                    duracion_estimada_km=payload.duracion_estimada_km,
-                    id_categoria=id_cat,
-                )
-                db.add(prod)
-                db.flush()
-            else:
-                raise EntityNotFoundError(f"Repuesto no encontrado para el código de barras '{cod}'.")
-
-        cantidad = int(payload.cantidad or 1)
-        if cantidad <= 0:
-            raise BusinessValidationError("La cantidad de entrada debe ser mayor a 0.")
-
-        stock_anterior = int(prod.stock or 0)
-        stock_nuevo = stock_anterior + cantidad
-        prod.stock = stock_nuevo
-
-        if payload.costo_unitario is not None:
-            prod.costo = float(payload.costo_unitario)
-        if payload.precio_venta is not None:
-            prod.pvp = float(payload.precio_venta)
-        if getattr(payload, "proveedor", None):
-            prod.proveedor = payload.proveedor
-
-        prod.fecha_modificacion = datetime.now()
-
-        costo_u = float(payload.costo_unitario if payload.costo_unitario is not None else (prod.costo or 0.0))
-        precio_u = float(payload.precio_venta if payload.precio_venta is not None else (prod.pvp or 0.0))
-
-        mov = MovimientoKardex(
-            id_producto=prod.id_producto,
-            tipo_movimiento="ENTRADA",
-            origen=payload.origen or "COMPRA_PROVEEDOR",
-            cantidad=cantidad,
-            stock_anterior=stock_anterior,
-            stock_nuevo=stock_nuevo,
-            costo_unitario=costo_u,
-            precio_unitario=precio_u,
-            codigo_escaneado=cod,
-            id_usuario=payload.id_usuario,
-            numero_factura_proveedor=payload.numero_factura_proveedor,
-            comprobante_url=payload.comprobante_url,
-            motivo=payload.motivo or f"Entrada escaneada con móvil ({cantidad} uds.)",
-            fecha=datetime.now(),
-        )
-        db.add(mov)
-        db.commit()
-        db.refresh(prod)
-        db.refresh(mov)
-
-        return {
-            "exito": True,
-            "tipo": "ENTRADA",
-            "mensaje": f"Se ingresaron exitosamente {cantidad} unidades al stock de '{prod.nombre}'.",
-            "producto": prod.to_dict(),
-            "movimiento": mov.to_dict(),
-            "stock_anterior": stock_anterior,
-            "stock_nuevo": stock_nuevo,
-        }
+        from app.modules.inventario.movimientos import registrar_escaneo, retirar_reserva
+        return registrar_escaneo(db, payload, True)
 
     @staticmethod
     def registrar_salida(db: Session, payload: Any) -> Dict[str, Any]:
-        cod = (payload.codigo_barras or "").strip()
-        if not cod:
-            raise BusinessValidationError("Debe proporcionar el código de barras escaneado.")
-
-        prod = KardexService.buscar_por_codigo(db, cod)
-        if not prod:
-            raise EntityNotFoundError(f"Repuesto no encontrado para el código de barras '{cod}'.")
-
-        cantidad = int(payload.cantidad or 1)
-        if cantidad <= 0:
-            raise BusinessValidationError("La cantidad de salida debe ser mayor a 0.")
-
-        stock_anterior = int(prod.stock or 0)
-        if stock_anterior < cantidad:
-            raise BusinessValidationError(
-                f"Stock insuficiente para '{prod.nombre}'. Hay {stock_anterior} disponibles en bodega e intentas retirar {cantidad}."
-            )
-
-        stock_nuevo = stock_anterior - cantidad
-        prod.stock = stock_nuevo
-        prod.fecha_modificacion = datetime.now()
-
-        mov = MovimientoKardex(
-            id_producto=prod.id_producto,
-            tipo_movimiento="SALIDA",
-            origen=payload.origen or "TALLER_ORDEN",
-            cantidad=cantidad,
-            stock_anterior=stock_anterior,
-            stock_nuevo=stock_nuevo,
-            costo_unitario=float(prod.costo or 0.0),
-            precio_unitario=float(prod.pvp or 0.0),
-            codigo_escaneado=cod,
-            id_registro=payload.id_registro,
-            id_usuario=payload.id_usuario,
-            motivo=payload.motivo or f"Salida escaneada con móvil ({cantidad} uds.)",
-            fecha=datetime.now(),
-        )
-        db.add(mov)
-        db.commit()
-        db.refresh(prod)
-        db.refresh(mov)
-
-        alerta = prod.alerta_stock_minimo
-        mensaje_alerta = None
-        if alerta:
-            mensaje_alerta = f"⚠️ ALERTA DE STOCK: '{prod.nombre}' llegó al stock mínimo ({stock_nuevo} restantes). Se requiere reponer."
-
-        return {
-            "exito": True,
-            "tipo": "SALIDA",
-            "mensaje": f"Se despacharon {cantidad} unidades de '{prod.nombre}'.",
-            "producto": prod.to_dict(),
-            "movimiento": mov.to_dict(),
-            "stock_anterior": stock_anterior,
-            "stock_nuevo": stock_nuevo,
-            "alerta_stock_minimo": alerta,
-            "mensaje_alerta": mensaje_alerta,
-        }
+        from app.modules.inventario.movimientos import registrar_escaneo, retirar_reserva
+        return registrar_escaneo(db, payload, False)
 
     @staticmethod
     def listar_movimientos(
@@ -489,7 +357,7 @@ class KardexService:
         id_registro: Optional[int] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        query = db.query(MovimientoKardex)
+        query = scoped_query(db, MovimientoKardex)
         if id_producto:
             query = query.filter(MovimientoKardex.id_producto == id_producto)
         if tipo_movimiento:
@@ -518,11 +386,13 @@ class ReservaRepuestoService:
 
     @staticmethod
     def reservar_item(db: Session, payload: Any) -> Dict[str, Any]:
-        prod = db.query(Producto).filter(Producto.id_producto == payload.id_producto).first()
+        from app.modules.inventario.movimientos import bloquear_orden, bloquear_producto
+        bloquear_orden(db, payload.id_registro)
+        prod = bloquear_producto(db, payload.id_producto)
         if not prod:
             raise EntityNotFoundError("Producto", payload.id_producto)
 
-        reg = db.query(Registro).filter(Registro.id_registro == payload.id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == payload.id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro de taller", payload.id_registro)
 
@@ -557,10 +427,12 @@ class ReservaRepuestoService:
         """
         Reserva automáticamente en bodega todos los repuestos aprobados de un presupuesto (Proceso 6 / Inv-4).
         """
-        presupuesto = db.query(Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
+        presupuesto = scoped_query(db, Presupuesto).filter(Presupuesto.id_presupuesto == id_presupuesto).first()
         if not presupuesto:
             raise EntityNotFoundError("Presupuesto", id_presupuesto)
 
+        from app.modules.inventario.movimientos import bloquear_orden, bloquear_producto
+        bloquear_orden(db, presupuesto.id_registro)
         if presupuesto.estado not in ("APROBADO_TOTAL", "APROBADO_PARCIAL"):
             raise BusinessValidationError(
                 f"No se pueden reservar repuestos de un presupuesto en estado '{presupuesto.estado}'. Debe estar aprobado por el cliente."
@@ -585,17 +457,17 @@ class ReservaRepuestoService:
 
             # Verificar si ya existe reserva activa para este ítem
             existente = (
-                db.query(ReservaRepuesto)
+                scoped_query(db, ReservaRepuesto)
                 .filter(
                     ReservaRepuesto.id_item_presupuesto == item.id_item,
-                    ReservaRepuesto.estado == "RESERVADO",
+                    ReservaRepuesto.estado.in_(["RESERVADO", "RETIRADO"]),
                 )
                 .first()
             )
             if existente:
                 continue
 
-            prod = db.query(Producto).filter(Producto.id_producto == item.id_producto).first()
+            prod = bloquear_producto(db, item.id_producto)
             if not prod:
                 continue
 
@@ -619,6 +491,7 @@ class ReservaRepuestoService:
             db.add(nueva_reserva)
             reservas_creadas.append(nueva_reserva)
 
+        db.flush()
         db.commit()
         for r in reservas_creadas:
             db.refresh(r)
@@ -640,14 +513,17 @@ class ReservaRepuestoService:
         """
         Asigna el mecánico responsable de la ejecución del trabajo en la orden (Proceso 6).
         """
-        reg = db.query(Registro).filter(Registro.id_registro == id_registro).first()
+        reg = scoped_query(db, Registro).filter(Registro.id_registro == id_registro).first()
         if not reg:
             raise EntityNotFoundError("Registro de taller", id_registro)
 
-        mecanico = db.query(Usuario).filter(Usuario.id_usuario == id_mecanico).first()
+        mecanico = scoped_query(db, Usuario).filter(Usuario.id_usuario == id_mecanico).first()
         if not mecanico:
             raise EntityNotFoundError("Usuario Mecánico", id_mecanico)
 
+        from app.modules.roles.models import UsuarioRol, Rol
+        if not db.query(UsuarioRol).join(Rol).filter(UsuarioRol.id_usuario == id_mecanico, UsuarioRol.estado == 1, Rol.nombre == "MECANICO").first():
+            raise BusinessValidationError("Seleccione una cuenta con rol de mecánico activo")
         reg.id_encargado = id_mecanico
         if fecha_entrega_estimada:
             try:
@@ -662,8 +538,9 @@ class ReservaRepuestoService:
                 reg.observaciones = f"Asignación: {observaciones}"
 
         # Si aún estaba en recepción (1), avanza a estado en reparación (2)
-        if reg.estado == 1:
-            reg.estado = 2
+        from app.modules.taller.estados import EstadoOrden, aplicar_estado
+        if reg.estado == EstadoOrden.PENDIENTE:
+            aplicar_estado(reg, EstadoOrden.EN_PROCESO)
 
         db.commit()
         db.refresh(reg)
@@ -688,7 +565,7 @@ class ReservaRepuestoService:
         """
         Libera las unidades reservadas devolviéndolas al stock disponible (Proceso Inv-5.1).
         """
-        reserva = db.query(ReservaRepuesto).filter(ReservaRepuesto.id_reserva == id_reserva).first()
+        reserva = scoped_query(db, ReservaRepuesto).filter(ReservaRepuesto.id_reserva == id_reserva).first()
         if not reserva:
             raise EntityNotFoundError("Reserva de repuesto", id_reserva)
 
@@ -725,68 +602,13 @@ class ReservaRepuestoService:
         id_reserva: int,
         id_usuario: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        El mecánico retira el repuesto de bodega para instalarlo en el vehículo (Proceso 7).
-        Descuenta del stock físico y de las unidades reservadas, registrando la salida en Kardex.
-        """
-        reserva = db.query(ReservaRepuesto).filter(ReservaRepuesto.id_reserva == id_reserva).first()
-        if not reserva:
-            raise EntityNotFoundError("Reserva de repuesto", id_reserva)
-
-        if reserva.estado != "RESERVADO":
-            raise BusinessValidationError(
-                f"No se puede retirar una reserva en estado '{reserva.estado}'. Debe estar 'RESERVADO'."
-            )
-
-        prod = db.query(Producto).filter(Producto.id_producto == reserva.id_producto).first()
-        if not prod:
-            raise EntityNotFoundError("Producto", reserva.id_producto)
-
-        stock_anterior = prod.stock
-        prod.stock_reservado = max(0, prod.stock_reservado - reserva.cantidad)
-        prod.stock = max(0, prod.stock - reserva.cantidad)
-        stock_nuevo = prod.stock
-
-        # Registrar salida en Kardex
-        mov = MovimientoKardex(
-            id_producto=prod.id_producto,
-            tipo_movimiento="SALIDA",
-            origen="RETIRO_INSTALACION_TALLER",
-            cantidad=reserva.cantidad,
-            stock_anterior=stock_anterior,
-            stock_nuevo=stock_nuevo,
-            costo_unitario=prod.costo,
-            precio_unitario=prod.pvp,
-            codigo_escaneado=prod.codigo_barras or prod.codigo_personal,
-            id_registro=reserva.id_registro,
-            id_usuario=id_usuario,
-            motivo=f"Retiro de repuesto para orden #{reserva.id_registro} (Proceso 7)",
-            fecha=datetime.now(),
-        )
-        db.add(mov)
-
-        reserva.estado = "RETIRADO"
-        reserva.fecha_retiro = datetime.now()
-        if id_usuario:
-            reserva.id_usuario = id_usuario
-
-        db.commit()
-        db.refresh(reserva)
-        db.refresh(prod)
-        db.refresh(mov)
-
-        return {
-            "exito": True,
-            "mensaje": f"Repuesto '{prod.nombre}' retirado para instalación en la orden #{reserva.id_registro}.",
-            "reserva": reserva.to_dict(),
-            "producto": prod.to_dict(),
-            "movimiento_kardex": mov.to_dict(),
-        }
+        from app.modules.inventario.movimientos import registrar_escaneo, retirar_reserva
+        return retirar_reserva(db, id_reserva, id_usuario)
 
     @staticmethod
     def listar_reservas_por_registro(db: Session, id_registro: int) -> List[Dict[str, Any]]:
         reservas = (
-            db.query(ReservaRepuesto)
+            scoped_query(db, ReservaRepuesto)
             .filter(ReservaRepuesto.id_registro == id_registro)
             .order_by(ReservaRepuesto.fecha_reserva.desc())
             .all()
@@ -795,7 +617,7 @@ class ReservaRepuestoService:
 
     @staticmethod
     def listar_todas(db: Session, estado: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = db.query(ReservaRepuesto)
+        query = scoped_query(db, ReservaRepuesto)
         if estado:
             query = query.filter(func.upper(ReservaRepuesto.estado) == estado.strip().upper())
         reservas = query.order_by(ReservaRepuesto.fecha_reserva.desc()).all()

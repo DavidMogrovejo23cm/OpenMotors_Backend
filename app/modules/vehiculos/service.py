@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 from typing import List, Optional, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,11 +12,11 @@ from app.shared.storage_service import storage_service
 class VehiculoService:
     @staticmethod
     def listar_todas(db: Session) -> List[Vehiculo]:
-        return db.query(Vehiculo).order_by(Vehiculo.id_vehiculo.asc()).all()
+        return scoped_query(db, Vehiculo).order_by(Vehiculo.id_vehiculo.asc()).all()
 
     @staticmethod
     def obtener_por_id(db: Session, id_vehiculo: int) -> Vehiculo:
-        vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
+        vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
         if not vehiculo:
             raise EntityNotFoundError("Vehiculo", id_vehiculo)
         return vehiculo
@@ -23,11 +24,11 @@ class VehiculoService:
     @staticmethod
     def obtener_por_placa(db: Session, placa: str) -> Optional[Vehiculo]:
         placa_norm = (placa or "").strip().upper()
-        return db.query(Vehiculo).filter(func.upper(Vehiculo.placa) == placa_norm).first()
+        return scoped_query(db, Vehiculo).filter(func.upper(Vehiculo.placa) == placa_norm).first()
 
     @staticmethod
     def listar_por_usuario(db: Session, id_usuario: int) -> List[Vehiculo]:
-        return db.query(Vehiculo).filter(Vehiculo.id_usuario == id_usuario).order_by(Vehiculo.id_vehiculo.asc()).all()
+        return scoped_query(db, Vehiculo).filter(Vehiculo.id_usuario == id_usuario).order_by(Vehiculo.id_vehiculo.asc()).all()
 
     @staticmethod
     def listar_por_cedula(db: Session, cedula: str) -> List[Vehiculo]:
@@ -35,7 +36,7 @@ class VehiculoService:
         from app.modules.usuarios.models import Usuario
         ced_norm = (cedula or "").strip()
         return (
-            db.query(Vehiculo)
+            scoped_query(db, Vehiculo)
             .join(Usuario, Vehiculo.id_usuario == Usuario.id_usuario)
             .filter(Usuario.cedula == ced_norm)
             .order_by(Vehiculo.id_vehiculo.asc())
@@ -47,8 +48,15 @@ class VehiculoService:
         placa_norm = (payload.placa or "").strip().upper()
         if not placa_norm:
             raise BusinessValidationError("La placa es obligatoria")
+        if not (payload.marca or "").strip() or not (payload.modelo or "").strip():
+            raise BusinessValidationError("La marca y el modelo son obligatorios")
+        from app.modules.usuarios.models import Usuario
+        if not scoped_query(db, Usuario).filter_by(id_usuario=payload.id_usuario).first():
+            raise EntityNotFoundError("Propietario", payload.id_usuario)
+        if payload.kilometraje is not None and payload.kilometraje < 0:
+            raise BusinessValidationError("El kilometraje no puede ser negativo")
 
-        if db.query(Vehiculo).filter(func.upper(Vehiculo.placa) == placa_norm).first():
+        if scoped_query(db, Vehiculo).filter(func.upper(Vehiculo.placa) == placa_norm).first():
             raise ConflictError(f"La placa {placa_norm} ya está registrada")
 
         nueva = Vehiculo(
@@ -81,7 +89,7 @@ class VehiculoService:
         if payload.placa is not None and payload.placa.strip().upper() != vehiculo.placa.upper():
             nueva_placa = payload.placa.strip().upper()
             choque = (
-                db.query(Vehiculo)
+                scoped_query(db, Vehiculo)
                 .filter(func.upper(Vehiculo.placa) == nueva_placa, Vehiculo.id_vehiculo != id_vehiculo)
                 .first()
             )

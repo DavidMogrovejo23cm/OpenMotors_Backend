@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Response, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.authorization import CurrentUser, require_roles
 from app.core.exceptions import EntityNotFoundError
 from app.modules.facturacion.schemas import (
     FacturaCreate,
@@ -99,23 +100,29 @@ def preparar_cobro_orden(payload: PrepararCobroRequest, db: Session = Depends(ge
 
 @notas_venta_router.post("/{id_nota_venta}/confirmar-pago")
 def confirmar_pago_nota_venta(
-    id_nota_venta: int, payload: ConfirmarPagoRequest, db: Session = Depends(get_db)
+    id_nota_venta: int, payload: ConfirmarPagoRequest, db: Session = Depends(get_db),
+    actor: CurrentUser = Depends(require_roles("ADMIN"))
 ):
     """
     Procesos 11, 11.1, 12, 13, 13.1 y 14:
     - Confirma pago en Efectivo, Transferencia o Tarjeta.
-    - Si el monto está incompleto, retiene la orden y el auto (Proceso 11.1).
-    - Emite la Nota de Venta numerada [Estado 7: PAGADO] (Proceso 12).
+    - Si el monto está incompleto, registra el abono y conserva el saldo pendiente.
+    - Emite la Nota de Venta numerada [pago confirmado] (Proceso 12).
     - Descuenta del inventario los repuestos usados y genera Kardex (Proceso 13 y 13.1).
     - Cierra la contabilidad de la orden calculando la ganancia neta (Proceso 14).
     """
+    payload.id_usuario_cajero = actor.id_usuario
     return NotaDeVentaService.confirmar_pago(db, id_nota_venta, payload)
 
 
 @notas_venta_router.get("/reportes/financiero")
-def obtener_reporte_financiero_global(db: Session = Depends(get_db)):
-    """Proceso 14 / Fin-8: Reporte global de ingresos, costo de repuestos, pagos a mecánicos y ganancia neta."""
-    return NotaDeVentaService.reporte_financiero_global(db)
+def obtener_reporte_financiero_global(
+    fecha_inicio: Optional[str] = Query(default=None),
+    fecha_fin: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Proceso 14 / Fin-8: Reporte global o por período de ingresos, costo de repuestos, pagos a mecánicos y ganancia neta."""
+    return NotaDeVentaService.reporte_financiero_global(db, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
 
 
 @notas_venta_router.get("/{id_nota_venta}")
@@ -137,7 +144,7 @@ def obtener_nota_venta_por_registro(id_registro: int, db: Session = Depends(get_
 @notas_venta_router.get("")
 @notas_venta_router.get("/", include_in_schema=False)
 def listar_notas_de_venta(
-    estado_pago: Optional[str] = Query(default=None, description="PENDIENTE_PAGO | PAGADO"),
+    estado_pago: Optional[str] = Query(default=None, description="PENDIENTE | PAGADO"),
     db: Session = Depends(get_db),
 ):
     return NotaDeVentaService.listar_todas(db, estado_pago=estado_pago)

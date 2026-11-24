@@ -58,7 +58,7 @@ def client():
         id_vehiculo=vehiculo.id_vehiculo,
         descripcion="Mantenimiento correctivo de frenos",
         costo_total=0.0,
-        estado=1,
+        estado=0,
         kilometraje=35000,
     )
     db.add(reg)
@@ -142,7 +142,7 @@ def test_asignar_mecanico_a_orden(client: TestClient):
     headers = get_auth_headers(client)
 
     payload = {
-        "id_mecanico": 2,  # Usuario mecánico o encargado existente
+        "id_mecanico": 3,  # Usuario mecánico o encargado existente
         "observaciones": "Asignado para cambio inmediato de pastillas delanteras",
         "fecha_entrega_estimada": "2026-11-12T17:00:00",
     }
@@ -150,8 +150,8 @@ def test_asignar_mecanico_a_orden(client: TestClient):
     assert res.status_code == 200
     data = res.json()
     assert data["exito"] is True
-    assert data["id_encargado"] == 2
-    assert data["estado_orden"] == 2  # En proceso / reparación
+    assert data["id_encargado"] == 3
+    assert data["estado_orden"] == 1  # En proceso / reparación
 
 
 def test_retirar_repuesto_para_instalacion_proceso_7(client: TestClient):

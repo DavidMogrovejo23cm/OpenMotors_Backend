@@ -25,6 +25,10 @@ class Usuario(Base):
     puntos_bonus = Column("puntos_bonus", Integer, nullable=False, default=0)
     codigo_referido = Column("codigo_referido", String(20), nullable=True, unique=True)
     referido_usado = Column("referido_usado", Boolean, nullable=False, default=False)
+    activo = Column("activo", Boolean, nullable=False, default=True)
+    token_version = Column("token_version", Integer, nullable=False, default=1)
+
+    permisos = relationship("PermisoUsuario", cascade="all, delete-orphan", lazy="select")
 
     roles = relationship(
         "UsuarioRol",
@@ -43,6 +47,7 @@ class Usuario(Base):
 
     def to_dict(self, include_roles: bool = True) -> dict:
         data = {
+            "permisos": sorted(p.clave for p in self.permisos),
             "id_usuario": self.id_usuario,
             "nombre_completo": self.nombre_completo,
             "nombre_usuario": self.nombre_usuario,
@@ -60,6 +65,7 @@ class Usuario(Base):
             "codigo_referido": self.codigo_referido,
             "referidoUsado": bool(self.referido_usado),
             "referido_usado": bool(self.referido_usado),
+            "activo": bool(self.activo if self.activo is not None else True),
         }
         if include_roles:
             data["roles"] = [r.to_dict(include_usuario=False) for r in (self.roles or [])]
@@ -78,3 +84,25 @@ class RecuperacionContrasena(Base):
 
     usuario = relationship("Usuario", lazy="joined")
 
+
+
+class PermisoUsuario(Base):
+    __tablename__ = "permisos_usuario"
+    id_usuario = Column(Integer, ForeignKey("usuarios.id_usuario", ondelete="CASCADE"), primary_key=True)
+    clave = Column(String(50), primary_key=True)
+
+
+class TokenRevocado(Base):
+    __tablename__ = "tokens_revocados"
+
+    id_revocado = Column("id_revocado", Integer, primary_key=True, index=True, autoincrement=True)
+    jti = Column("jti", String(64), nullable=False, unique=True, index=True)
+    id_usuario = Column(
+        "id_usuario",
+        Integer,
+        ForeignKey("usuarios.id_usuario", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    expiracion = Column("expiracion", DateTime, nullable=True)
+    fecha_revocacion = Column("fecha_revocacion", DateTime, nullable=False, default=datetime.now)

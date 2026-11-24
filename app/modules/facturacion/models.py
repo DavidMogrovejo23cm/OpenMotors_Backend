@@ -53,6 +53,14 @@ class DetalleFactura(Base):
     producto = relationship("Producto", lazy="joined")
 
     def to_dict(self) -> dict:
+        from sqlalchemy.orm import object_session
+        import re
+        session = object_session(self)
+        actor = session.info.get("actor") if session else None
+        descripcion = self.descripcion
+        if actor and "ADMIN" not in actor.roles and (descripcion or "").upper().startswith("[REP"):
+            tag, separator, rest = descripcion.partition("]")
+            descripcion = re.sub(r"\|COSTO:[^|]*", "", tag, flags=re.IGNORECASE) + separator + rest
         return {
             "id_detalle": self.id_detalle,
             "idDetalleFactura": self.id_detalle,
@@ -60,7 +68,7 @@ class DetalleFactura(Base):
             "idFactura": self.id_factura,
             "id_producto": self.id_producto,
             "idProducto": self.id_producto,
-            "descripcion": self.descripcion,
+            "descripcion": descripcion,
             "cantidad": int(self.cantidad or 1),
             "precio_unitario": round(float(self.precio_unitario or 0.0), 2),
             "precioUnitario": round(float(self.precio_unitario or 0.0), 2),
@@ -95,7 +103,7 @@ class NotaDeVenta(Base):
     metodo_pago = Column("metodo_pago", String(30), nullable=False, default="EFECTIVO")  # EFECTIVO, TRANSFERENCIA, TARJETA
     numero_referencia_pago = Column("numero_referencia_pago", String(100), nullable=True)
     comprobante_url = Column("comprobante_url", String(500), nullable=True)
-    estado_pago = Column("estado_pago", String(30), nullable=False, default="PENDIENTE_PAGO")  # PENDIENTE_PAGO | PAGADO
+    estado_pago = Column("estado_pago", String(30), nullable=False, default="PENDIENTE")  # PENDIENTE | PAGADO
     costo_repuestos_taller = Column("costo_repuestos_taller", Float, nullable=False, default=0.0)
     horas_mecanico = Column("horas_mecanico", Float, nullable=False, default=0.0)
     tarifa_hora_mecanico = Column("tarifa_hora_mecanico", Float, nullable=False, default=0.0)
@@ -106,7 +114,7 @@ class NotaDeVenta(Base):
     items = relationship("ItemNotaDeVenta", back_populates="nota_venta", cascade="all, delete-orphan", lazy="selectin")
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "id_nota_venta": self.id_nota_venta,
             "numero_nota_venta": self.numero_nota_venta,
             "id_registro": self.id_registro,
@@ -135,6 +143,16 @@ class NotaDeVenta(Base):
             "observaciones": self.observaciones,
             "items": [it.to_dict() for it in self.items] if self.items else [],
         }
+
+        from sqlalchemy.orm import object_session
+        session = object_session(self)
+        actor = session.info.get("actor") if session else None
+        if actor and "ADMIN" not in actor.roles:
+            for key in ("costo_repuestos_taller", "horas_mecanico", "tarifa_hora_mecanico", "pago_mecanico", "ganancia_neta_taller"):
+                data.pop(key, None)
+            for item in data.get("items", []):
+                item.pop("costo_unitario", None)
+        return data
 
 
 class ItemNotaDeVenta(Base):

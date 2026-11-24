@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 from fastapi import APIRouter, Depends, Response, status
@@ -42,7 +43,7 @@ rutas_router = APIRouter(prefix="/api/rutas", tags=["Rutas GPS"])
 @rutas_router.get("")
 @rutas_router.get("/", include_in_schema=False)
 def listar_todas_rutas(db: Session = Depends(get_db)):
-    rutas = db.query(Ruta).order_by(Ruta.id_ruta.desc()).all()
+    rutas = scoped_query(db, Ruta).order_by(Ruta.id_ruta.desc()).all()
     return [r.to_dict() for r in rutas]
 
 
@@ -68,13 +69,13 @@ def crear_ruta(payload: RutaCreate, db: Session = Depends(get_db)):
 
 @rutas_router.get("/usuario/{id_usuario}")
 def listar_rutas_por_usuario(id_usuario: int, db: Session = Depends(get_db)):
-    rutas = db.query(Ruta).filter(Ruta.id_usuario == id_usuario).order_by(Ruta.id_ruta.desc()).all()
+    rutas = scoped_query(db, Ruta).filter(Ruta.id_usuario == id_usuario).order_by(Ruta.id_ruta.desc()).all()
     return [r.to_dict() for r in rutas]
 
 
 @rutas_router.get("/{id_ruta}")
 def obtener_ruta(id_ruta: int, db: Session = Depends(get_db)):
-    r = db.query(Ruta).filter(Ruta.id_ruta == id_ruta).first()
+    r = scoped_query(db, Ruta).filter(Ruta.id_ruta == id_ruta).first()
     if not r:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     return r.to_dict()
@@ -82,7 +83,7 @@ def obtener_ruta(id_ruta: int, db: Session = Depends(get_db)):
 
 @rutas_router.put("/{id_ruta}")
 def actualizar_ruta(id_ruta: int, payload: RutaUpdate, db: Session = Depends(get_db)):
-    r = db.query(Ruta).filter(Ruta.id_ruta == id_ruta).first()
+    r = scoped_query(db, Ruta).filter(Ruta.id_ruta == id_ruta).first()
     if not r:
         raise EntityNotFoundError("Ruta", id_ruta)
     if payload.nombre_ruta is not None:
@@ -109,7 +110,7 @@ def actualizar_ruta(id_ruta: int, payload: RutaUpdate, db: Session = Depends(get
 
 @rutas_router.delete("/{id_ruta}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_ruta(id_ruta: int, db: Session = Depends(get_db)):
-    r = db.query(Ruta).filter(Ruta.id_ruta == id_ruta).first()
+    r = scoped_query(db, Ruta).filter(Ruta.id_ruta == id_ruta).first()
     if r:
         db.delete(r)
         db.commit()

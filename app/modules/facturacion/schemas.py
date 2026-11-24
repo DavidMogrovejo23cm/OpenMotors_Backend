@@ -56,9 +56,10 @@ class ConfirmarPagoRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     metodo_pago: str = Field(default="EFECTIVO", validation_alias=AliasChoices("metodo_pago", "metodoPago"))  # EFECTIVO, TRANSFERENCIA, TARJETA
-    monto_recibido: float = Field(..., ge=0.0, validation_alias=AliasChoices("monto_recibido", "montoRecibido", "monto"))
-    numero_referencia: Optional[str] = Field(default=None, validation_alias=AliasChoices("numero_referencia", "numeroReferencia"))
+    monto_recibido: float = Field(..., gt=0.0, allow_inf_nan=False, validation_alias=AliasChoices("monto_recibido", "montoRecibido", "monto"))
+    numero_referencia: Optional[str] = Field(default=None, max_length=100, validation_alias=AliasChoices("numero_referencia", "numeroReferencia"))
     comprobante_url: Optional[str] = Field(default=None, validation_alias=AliasChoices("comprobante_url", "comprobanteUrl"))
     id_usuario_cajero: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_usuario_cajero", "idUsuarioCajero"))
+    id_operacion: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
 

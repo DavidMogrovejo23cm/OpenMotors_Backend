@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 
 
@@ -22,18 +22,34 @@ class RegistroCreate(BaseModel):
     fecha_entrega_estimada: Optional[str] = Field(
         default=None, validation_alias=AliasChoices("fecha_entrega_estimada", "fechaEntregaEstimada")
     )
+    horas_estimadas: Optional[float] = Field(
+        default=None, ge=0.0, allow_inf_nan=False, validation_alias=AliasChoices("horas_estimadas", "horasEstimadas")
+    )
     descripcion: Optional[str] = None
     observaciones: Optional[str] = None
     costo_total: float = Field(default=0.0, validation_alias=AliasChoices("costo_total", "costoTotal"))
     id_vehiculo: int = Field(
         ...,
-        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_carro", "idCarro"),
     )
     id_encargado: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_encargado", "idEncargado"))
     id_tipo: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_tipo", "idTipo"))
     id_factura: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_factura", "idFactura"))
     kilometraje: Optional[int] = None
-    estado: Optional[int] = 1
+    estado: Literal[0] = 0
+    flujo_integrado: bool = False
+
+
+class EstimacionOrdenUpdate(BaseModel):
+    """RF-15 / HU-17: Actualización de fecha y tiempo estimado de trabajo."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    fecha_entrega_estimada: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("fecha_entrega_estimada", "fechaEntregaEstimada")
+    )
+    horas_estimadas: Optional[float] = Field(
+        default=None, ge=0.0, allow_inf_nan=False, validation_alias=AliasChoices("horas_estimadas", "horasEstimadas")
+    )
 
 
 class DetalleDiagnosticoInput(BaseModel):
@@ -48,17 +64,18 @@ class DetalleDiagnosticoInput(BaseModel):
 
 
 class DiagnosticoCreate(BaseModel):
+    origen_diagnostico: Literal["CRITERIO_TECNICO", "ESCANER", "AMBOS"] = "CRITERIO_TECNICO"
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     id_vehiculo: int = Field(
         ...,
-        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_carro", "idCarro"),
     )
     id_mecanico: int = Field(..., validation_alias=AliasChoices("id_mecanico", "idMecanico"))
     id_registro: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_registro", "idRegistro"))
     id_recepcion: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_recepcion", "idRecepcion"))
     kilometraje_ingreso: Optional[int] = Field(
-        default=None, validation_alias=AliasChoices("kilometraje_ingreso", "kilometrajeIngreso")
+        default=None, ge=0, validation_alias=AliasChoices("kilometraje_ingreso", "kilometrajeIngreso")
     )
     escaner_utilizado: Optional[str] = Field(
         default=None, validation_alias=AliasChoices("escaner_utilizado", "escanerUtilizado")
@@ -86,7 +103,7 @@ class RecepcionCreate(BaseModel):
 
     id_vehiculo: int = Field(
         ...,
-        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_carro", "idCarro"),
     )
     id_encargado: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_encargado", "idEncargado"))
     id_registro: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_registro", "idRegistro"))
@@ -139,12 +156,12 @@ class PresupuestoCreate(BaseModel):
     id_registro: int = Field(..., validation_alias=AliasChoices("id_registro", "idRegistro"))
     id_vehiculo: int = Field(
         ...,
-        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_carro", "idCarro"),
     )
     id_diagnostico: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_diagnostico", "idDiagnostico"))
     id_usuario: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_usuario", "idUsuario"))
-    descuento: Optional[float] = 0.0
-    costo_diagnostico: Optional[float] = Field(default=0.0, validation_alias=AliasChoices("costo_diagnostico", "costoDiagnostico"))
+    descuento: Optional[float] = Field(default=0, ge=0, allow_inf_nan=False)
+    costo_diagnostico: Optional[float] = Field(default=0.0, ge=0, allow_inf_nan=False, validation_alias=AliasChoices("costo_diagnostico", "costoDiagnostico"))
     observaciones: Optional[str] = None
     items: List[ItemPresupuestoInput] = []
 

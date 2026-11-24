@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: gmotors-backend
+    name: openmotors-backend
     runtime: docker
     plan: free
     healthCheckPath: /api/health

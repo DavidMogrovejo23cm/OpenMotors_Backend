@@ -9,6 +9,7 @@ from app.main import app
 from app.core.database import Base, engine, SessionLocal
 from app.core.seeder import init_db_and_seed
 from app.modules.vehiculos.models import Vehiculo
+from app.modules.taller.models import Registro
 from app.modules.usuarios.models import Usuario
 
 
@@ -30,6 +31,8 @@ def client():
         id_usuario=cliente.id_usuario,
     )
     db.add(vehiculo)
+    db.flush()
+    db.add(Registro(id_vehiculo=vehiculo.id_vehiculo, id_encargado=mecanico.id_usuario, estado=1))
     db.commit()
     db.close()
 
@@ -75,9 +78,17 @@ def test_proceso_3_diagnostico_manual_escaner_y_8_sistemas(client: TestClient):
     assert v_res.status_code == 200
     id_vehiculo = v_res.json()["id_vehiculo"]
 
+    rec = client.post('/api/recepciones', headers={"Authorization": "Bearer " + client.post('/api/usuarios/login', json={"nombre_usuario": "admin", "contrasena": "123456"}).json()['token']}, json={
+        "id_vehiculo": id_vehiculo, "id_encargado": id_mecanico, "kilometraje": 62150,
+        "foto_frente": "/static/frente.jpg", "foto_posterior": "/static/posterior.jpg",
+        "foto_lateral_izq": "/static/izq.jpg", "foto_lateral_der": "/static/der.jpg", "firma_cliente": "/static/firma.png",
+    })
+    assert rec.status_code == 201, rec.text
     # 4. Registrar el diagnóstico con la lectura manual del escáner y revisión de sistemas
     payload_diagnostico = {
         "id_vehiculo": id_vehiculo,
+        "id_registro": rec.json()["id_registro"],
+        "origen_diagnostico": "AMBOS",
         "id_mecanico": id_mecanico,
         "kilometraje_ingreso": 62150,
         "escaner_utilizado": "Autel MaxiCheck MX808",

@@ -14,7 +14,7 @@ class MantenimientoRegistrarRequest(BaseModel):
 
     id_vehiculo: int = Field(
         ...,
-        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_carro", "idCarro"),
     )
     tipo: str
     km_servicio: int = Field(..., validation_alias=AliasChoices("km_servicio", "kmServicio"))
@@ -26,7 +26,7 @@ class CitaMantenimientoCreate(BaseModel):
 
     id_vehiculo: int = Field(
         ...,
-        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_carro", "idCarro"),
     )
     id_usuario: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_usuario", "idUsuario"))
     fecha_agendada: str = Field(..., validation_alias=AliasChoices("fecha_agendada", "fechaAgendada"))

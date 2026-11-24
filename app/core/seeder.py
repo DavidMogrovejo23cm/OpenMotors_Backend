@@ -4,12 +4,22 @@ from sqlalchemy.orm import Session
 
 from app.core.database import Base, engine, SessionLocal
 from app.core.config import settings
-from app.core.migrations import migrate_vehicle_schema
+from app.core.migrations import (
+    migrate_vehicle_schema,
+    migrate_order_states,
+    migrate_workshop_schema,
+    migrate_users_security_schema,
+    migrate_finance_schema,
+)
+from app.modules.inventario.movimientos import OperacionInventario
+from app.modules.herramientas.models import Herramienta
 from app.core.security import hash_password
+from app.core.documentos import SecuenciaDocumento
 
 # Importar todos los modelos para registrar sus tablas en Base.metadata
 from app.modules.roles.models import Rol, UsuarioRol  # noqa: F401
-from app.modules.usuarios.models import Usuario, RecuperacionContrasena  # noqa: F401
+from app.modules.usuarios.models import Usuario, RecuperacionContrasena, TokenRevocado  # noqa: F401
+from app.modules.sistema.auditoria import AuditoriaOperacion  # noqa: F401
 from app.modules.vehiculos.models import Vehiculo  # noqa: F401
 from app.modules.mantenimiento.models import (  # noqa: F401
     ParametroMantenimiento,
@@ -26,7 +36,18 @@ from app.modules.taller.models import (  # noqa: F401
     RecepcionVehiculo,
 )
 from app.modules.combustible.models import CargaCombustible, AppConfig  # noqa: F401
-from app.modules.finanzas.models import PagoEmpleado  # noqa: F401
+from app.modules.taller.pagos import PagoOrden  # noqa: F401
+from app.modules.finanzas.models import (  # noqa: F401
+    PagoEmpleado,
+    CategoriaMovimiento,
+    MovimientoCaja,
+    CierreCaja,
+)
+from app.modules.personal.models import (  # noqa: F401
+    PerfilLaboral,
+    HorarioTrabajo,
+    AsistenciaPersonal,
+)
 from app.modules.rutas.models import Ruta  # noqa: F401
 
 logger = logging.getLogger("openauto.seeder")
@@ -35,13 +56,21 @@ logger = logging.getLogger("openauto.seeder")
 def init_db_and_seed() -> None:
     """Crea todas las tablas si no existen e inicializa los datos semilla."""
     migrate_vehicle_schema(engine)
+    migrate_order_states(engine)
+    migrate_users_security_schema(engine)
+    migrate_finance_schema(engine)
     Base.metadata.create_all(bind=engine)
+    migrate_workshop_schema(engine)
     db: Session = SessionLocal()
     try:
+        from app.modules.inventario.movimientos import importar_consumos_anteriores
+        from app.modules.finanzas.service import FinanzasService
+        importar_consumos_anteriores(db)
         _seed_roles(db)
         _seed_default_users(db)
         _backfill_referral_codes(db)
         _seed_categories(db)
+        FinanzasService.asegurar_categorias(db)
         _seed_service_types(db)
         _replace_legacy_maintenance_parameters(db)
         _seed_maintenance_parameters(db)
@@ -272,7 +301,7 @@ def _seed_maintenance_parameters(db: Session) -> None:
     if db.query(ParametroMantenimiento).count() > 0:
         return
 
-    # Parámetros de mantenimiento preventivo para motos, vehículos ligeros y autos.
+    # Parámetros de mantenimiento preventivo para carros, vehículos ligeros y autos.
     rangos = [
         # (cc_min, cc_max, aceite, filtro_aire, bujia, frenos, transmision, valvulas, general)
         (50, 250, 2500, 5000, 10000, 5000, 15000, 10000, 5000),

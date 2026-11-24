@@ -38,6 +38,11 @@ class PermissionDeniedError(PermissionError):
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    from sqlalchemy.exc import IntegrityError
+    @app.exception_handler(IntegrityError)
+    async def database_conflict_handler(request: Request, exc: IntegrityError):
+        return JSONResponse(status_code=409, content={"error": "La operación entra en conflicto con un registro existente o sus referencias"})
+
     @app.exception_handler(BusinessValidationError)
     async def business_validation_handler(request: Request, exc: BusinessValidationError):
         return JSONResponse(

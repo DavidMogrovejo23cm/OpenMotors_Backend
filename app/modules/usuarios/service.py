@@ -1,15 +1,18 @@
+from app.core.access_scope import scoped_query
 import re
+import secrets
 import uuid
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.core.exceptions import EntityNotFoundError, BusinessValidationError, ConflictError
+from app.core.exceptions import EntityNotFoundError, BusinessValidationError, ConflictError, PermissionDeniedError
 from app.core.security import hash_password, verify_password, is_bcrypt_hash, create_access_token
-from app.modules.usuarios.models import Usuario, RecuperacionContrasena
+from app.modules.usuarios.models import Usuario, RecuperacionContrasena, TokenRevocado
 from app.modules.roles.models import Rol, UsuarioRol
+from app.modules.sistema.auditoria import registrar_auditoria
 from app.shared.email_service import email_service
 from app.shared.storage_service import storage_service
 
@@ -19,11 +22,11 @@ logger = logging.getLogger("openauto.usuarios")
 class UsuarioService:
     @staticmethod
     def listar_todos(db: Session) -> List[Usuario]:
-        return db.query(Usuario).order_by(Usuario.id_usuario.asc()).all()
+        return scoped_query(db, Usuario).order_by(Usuario.id_usuario.asc()).all()
 
     @staticmethod
     def obtener_por_id(db: Session, id_usuario: int) -> Usuario:
-        usuario = db.query(Usuario).filter(Usuario.id_usuario == id_usuario).first()
+        usuario = scoped_query(db, Usuario).filter(Usuario.id_usuario == id_usuario).first()
         if not usuario:
             raise EntityNotFoundError("Usuario", id_usuario)
         return usuario
@@ -41,6 +44,11 @@ class UsuarioService:
 
         if db.query(Usuario).filter(func.lower(Usuario.nombre_usuario) == username_norm.lower()).first():
             raise ConflictError("El nombre de usuario ya está en uso")
+
+        if getattr(payload, "cedula", None) and str(payload.cedula).strip():
+            cedula_norm = str(payload.cedula).strip()
+            if db.query(Usuario).filter(Usuario.cedula == cedula_norm).first():
+                raise ConflictError("El número de cédula ya está registrado")
 
         raw_pwd = payload.contrasena
         if not raw_pwd or len(raw_pwd) < 6:
@@ -144,7 +152,16 @@ class UsuarioService:
         if payload.telefono is not None:
             usuario.telefono = payload.telefono
         if payload.cedula is not None:
-            usuario.cedula = payload.cedula
+            cedula_limpia = payload.cedula.strip()
+            if cedula_limpia:
+                choque_ced = (
+                    db.query(Usuario)
+                    .filter(Usuario.cedula == cedula_limpia, Usuario.id_usuario != id_usuario)
+                    .first()
+                )
+                if choque_ced:
+                    raise ConflictError("El número de cédula ya está registrado en otra cuenta")
+            usuario.cedula = cedula_limpia or None
         if payload.direccion is not None:
             usuario.direccion = payload.direccion
         if permitir_campos_administrativos and payload.puntos_bonus is not None:
@@ -160,6 +177,15 @@ class UsuarioService:
             usuario.ruta_imagen = payload.ruta_imagen
 
         usuario.ensure_defaults()
+        actor = db.info.get("actor")
+        registrar_auditoria(
+            db,
+            actor.id_usuario if actor else id_usuario,
+            "USUARIO_ACTUALIZADO",
+            "Usuario",
+            usuario.id_usuario,
+            f"Datos actualizados de cuenta {usuario.nombre_usuario}",
+        )
         db.commit()
         db.refresh(usuario)
         return usuario
@@ -179,7 +205,7 @@ class UsuarioService:
             raise BusinessValidationError("Debe ingresar su usuario o correo")
 
         usuario = (
-            db.query(Usuario)
+            scoped_query(db, Usuario)
             .filter(
                 (func.lower(Usuario.nombre_usuario) == ident.lower())
                 | (func.lower(Usuario.correo) == ident.lower())
@@ -191,6 +217,8 @@ class UsuarioService:
 
         if not verify_password(contrasena, usuario.contrasena):
             raise PermissionError("Credenciales inválidas")
+        if usuario.activo is False:
+            raise PermissionDeniedError("Tu cuenta está desactivada. Contacta al dueño del taller.")
         # Si estaba en texto plano, migrar automáticamente a BCrypt.
         if not is_bcrypt_hash(usuario.contrasena):
             usuario.contrasena = hash_password(contrasena)
@@ -204,10 +232,115 @@ class UsuarioService:
             id_usuario=usuario.id_usuario,
             nombre_usuario=usuario.nombre_usuario,
             correo=usuario.correo,
+            token_version=int(usuario.token_version or 1),
         )
         data = usuario.to_dict(include_roles=True)
         data["token"] = token
         return data
+
+    @staticmethod
+    def cerrar_sesion(db: Session, jwt_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not isinstance(jwt_payload, dict):
+            return {"mensaje": "Sesión cerrada correctamente"}
+        jti = str(jwt_payload.get("jti") or "").strip()
+        id_usuario = jwt_payload.get("id_usuario")
+        exp_ts = jwt_payload.get("exp")
+        if jti and id_usuario:
+            existente = db.query(TokenRevocado).filter(TokenRevocado.jti == jti).first()
+            if not existente:
+                expiracion = (
+                    datetime.fromtimestamp(int(exp_ts), tz=timezone.utc).replace(tzinfo=None)
+                    if exp_ts
+                    else None
+                )
+                db.add(
+                    TokenRevocado(
+                        jti=jti,
+                        id_usuario=int(id_usuario),
+                        expiracion=expiracion,
+                        fecha_revocacion=datetime.now(),
+                    )
+                )
+                db.commit()
+        return {"mensaje": "Sesión cerrada correctamente"}
+
+    @staticmethod
+    def cambiar_estado_activo(db: Session, id_usuario: int, activo: bool, actor_id: int) -> Usuario:
+        usuario = UsuarioService.obtener_por_id(db, id_usuario)
+        if not activo:
+            if id_usuario == actor_id:
+                raise BusinessValidationError("No puedes suspender tu propia cuenta mientras estás en sesión")
+            es_admin = any(
+                link.estado == 1 and link.rol and link.rol.nombre.upper() == "ADMIN"
+                for link in (usuario.roles or [])
+            )
+            if es_admin:
+                admins_activos = (
+                    db.query(Usuario)
+                    .join(UsuarioRol, Usuario.id_usuario == UsuarioRol.id_usuario)
+                    .join(Rol, UsuarioRol.id_rol == Rol.id_rol)
+                    .filter(
+                        UsuarioRol.estado == 1,
+                        func.upper(Rol.nombre) == "ADMIN",
+                        Usuario.activo.is_not(False),
+                    )
+                    .distinct()
+                    .all()
+                )
+                if len(admins_activos) <= 1 and any(a.id_usuario == id_usuario for a in admins_activos):
+                    raise BusinessValidationError("No se puede suspender al único administrador activo del sistema")
+            usuario.activo = False
+            usuario.token_version = int(usuario.token_version or 1) + 1
+            registrar_auditoria(
+                db,
+                actor_id,
+                "USUARIO_SUSPENDIDO",
+                "Usuario",
+                usuario.id_usuario,
+                f"Cuenta suspendida: {usuario.nombre_usuario}",
+            )
+        else:
+            usuario.activo = True
+            registrar_auditoria(
+                db,
+                actor_id,
+                "USUARIO_REACTIVADO",
+                "Usuario",
+                usuario.id_usuario,
+                f"Cuenta reactivada: {usuario.nombre_usuario}",
+            )
+        db.commit()
+        db.refresh(usuario)
+        return usuario
+
+    @staticmethod
+    def restablecer_contrasena_admin(
+        db: Session,
+        id_usuario: int,
+        nueva_contrasena: Optional[str],
+        actor_id: int,
+    ) -> Dict[str, Any]:
+        usuario = UsuarioService.obtener_por_id(db, id_usuario)
+        pwd = (nueva_contrasena or "").strip() or secrets.token_urlsafe(9)
+        if len(pwd) < 6:
+            raise BusinessValidationError("La contraseña debe tener al menos 6 caracteres")
+        usuario.contrasena = hash_password(pwd)
+        usuario.token_version = int(usuario.token_version or 1) + 1
+        registrar_auditoria(
+            db,
+            actor_id,
+            "USUARIO_CLAVE_RESTABLECIDA",
+            "Usuario",
+            usuario.id_usuario,
+            f"Contraseña restablecida por administrador para {usuario.nombre_usuario}",
+        )
+        db.commit()
+        db.refresh(usuario)
+        return {
+            "mensaje": "Contraseña restablecida exitosamente",
+            "usuario": usuario.to_dict(include_roles=True),
+            "contrasenaTemporal": pwd,
+        }
 
     @staticmethod
     def usar_codigo_referido(db: Session, id_usuario: int, codigo: str) -> Dict[str, Any]:
@@ -223,7 +356,7 @@ class UsuarioService:
             raise BusinessValidationError("No puedes usar tu propio código de referido.")
 
         referente = (
-            db.query(Usuario)
+            scoped_query(db, Usuario)
             .filter(func.upper(Usuario.codigo_referido) == codigo_limpio)
             .first()
         )
@@ -247,7 +380,7 @@ class RecuperacionContrasenaService:
     @staticmethod
     def solicitar_recuperacion(db: Session, correo: str) -> bool:
         correo_norm = (correo or "").strip().lower()
-        usuario = db.query(Usuario).filter(func.lower(Usuario.correo) == correo_norm).first()
+        usuario = scoped_query(db, Usuario).filter(func.lower(Usuario.correo) == correo_norm).first()
         if not usuario:
             return False
 
@@ -326,6 +459,7 @@ class RecuperacionContrasenaService:
             raise BusinessValidationError("Usuario asociado al token no encontrado")
 
         reg.usuario.contrasena = hash_password(nueva_contrasena)
+        reg.usuario.token_version = int(reg.usuario.token_version or 1) + 1
         reg.usado = True
         db.commit()
         return True

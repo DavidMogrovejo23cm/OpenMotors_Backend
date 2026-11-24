@@ -1,3 +1,4 @@
+from sqlalchemy import Index, func, text
 from datetime import date, datetime
 from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
@@ -45,18 +46,20 @@ class Producto(Base):
     id_categoria = Column("id_categoria", Integer, ForeignKey("categorias.id_categoria"), nullable=False)
     ruta_imagenproductos = Column("ruta_imagenproductos", String(500), nullable=True)
 
+    __table_args__ = (Index("uq_productos_barcode", func.lower(codigo_barras), unique=True, sqlite_where=text("codigo_barras IS NOT NULL AND trim(codigo_barras) <> ''"), postgresql_where=text("codigo_barras IS NOT NULL AND trim(codigo_barras) <> ''")),)
+
     categoria = relationship("Categoria", lazy="joined")
 
     @property
     def alerta_stock_minimo(self) -> bool:
-        return int(self.stock or 0) <= int(self.stock_minimo or 2)
+        return int(self.stock or 0) <= int(self.stock_minimo if self.stock_minimo is not None else 2)
 
     @property
     def stock_disponible(self) -> int:
         return max(0, int(self.stock or 0) - int(self.stock_reservado or 0))
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "id_producto": self.id_producto,
             "codigo_barras": self.codigo_barras or self.codigo_personal,
             "codigo_proveedor": self.codigo_proveedor,
@@ -69,7 +72,7 @@ class Producto(Base):
             "costo": round(float(self.costo or 0.0), 2),
             "pvp": round(float(self.pvp or 0.0), 2),
             "stock": int(self.stock or 0),
-            "stock_minimo": int(self.stock_minimo or 2),
+            "stock_minimo": int(self.stock_minimo if self.stock_minimo is not None else 2),
             "stock_reservado": int(self.stock_reservado or 0),
             "stock_disponible": self.stock_disponible,
             "alerta_stock_minimo": self.alerta_stock_minimo,
@@ -81,6 +84,14 @@ class Producto(Base):
             "categoria_nombre": self.categoria.nombre if self.categoria else None,
             "ruta_imagenproductos": self.ruta_imagenproductos,
         }
+
+        from sqlalchemy.orm import object_session
+        session = object_session(self)
+        actor = session.info.get("actor") if session else None
+        if actor and not actor.roles.intersection({"ADMIN", "MECANICO"}):
+            for key in ("costo", "stock", "stock_minimo", "stock_reservado", "stock_disponible", "alerta_stock_minimo", "ubicacion_bodega", "proveedor", "codigo_proveedor", "codigo_distribuidor"):
+                data.pop(key, None)
+        return data
 
 
 class MovimientoKardex(Base):

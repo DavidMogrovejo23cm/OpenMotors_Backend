@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 from datetime import date
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, Response, status
@@ -35,15 +36,15 @@ def _guardar_precio(db: Session, clave: str, precio: float) -> None:
 @combustible_router.get("")
 @combustible_router.get("/", include_in_schema=False)
 def listar_cargas(db: Session = Depends(get_db)):
-    cargas = db.query(CargaCombustible).order_by(CargaCombustible.fecha.desc(), CargaCombustible.id.desc()).all()
+    cargas = scoped_query(db, CargaCombustible).order_by(CargaCombustible.fecha.desc(), CargaCombustible.id.desc()).all()
     return [c.to_dict() for c in cargas]
 
 
 @combustible_router.get("/vehiculo/{id_vehiculo}")
-@combustible_router.get("/moto/{id_vehiculo}", include_in_schema=False)
+@combustible_router.get("/carro/{id_vehiculo}", include_in_schema=False)
 def listar_cargas_por_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
     cargas = (
-        db.query(CargaCombustible)
+        scoped_query(db, CargaCombustible)
         .filter(CargaCombustible.id_vehiculo == id_vehiculo)
         .order_by(CargaCombustible.fecha.desc(), CargaCombustible.id.desc())
         .all()
@@ -79,7 +80,7 @@ def registrar_carga_combustible(payload: CargaCombustibleCreate, db: Session = D
         except Exception:
             fecha_parsed = date.today()
 
-    vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
+    vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == payload.id_vehiculo).first()
     placa_final = payload.placa or (vehiculo.placa if vehiculo else "")
 
     nueva = CargaCombustible(
@@ -106,7 +107,7 @@ def registrar_carga_combustible(payload: CargaCombustibleCreate, db: Session = D
 
 @combustible_router.delete("/{id_carga}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_carga_combustible(id_carga: int, db: Session = Depends(get_db)):
-    carga = db.query(CargaCombustible).filter(CargaCombustible.id == id_carga).first()
+    carga = scoped_query(db, CargaCombustible).filter(CargaCombustible.id == id_carga).first()
     if carga:
         db.delete(carga)
         db.commit()

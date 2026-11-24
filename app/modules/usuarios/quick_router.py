@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 import secrets
 from typing import Optional
 from fastapi import APIRouter, Depends, status
@@ -5,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.exceptions import BusinessValidationError, ConflictError
 from app.modules.usuarios.models import Usuario
 from app.modules.usuarios.schemas import UsuarioCreate
 from app.modules.usuarios.service import UsuarioService
@@ -35,17 +37,27 @@ def crear_cuenta_rapida(payload: QuickAccountCreate, db: Session = Depends(get_d
     """Crea o vincula rápidamente un cliente y su vehículo en recepción."""
     correo_limpio = payload.correo.strip().lower()
     placa_limpia = payload.placa.strip().upper()
+    if not all(str(value or "").strip() for value in (
+        payload.nombre_completo, payload.correo, payload.placa, payload.marca, payload.modelo,
+    )):
+        raise BusinessValidationError("Complete nombre, correo, placa, marca y modelo")
+    if payload.kilometraje is not None and payload.kilometraje < 0:
+        raise BusinessValidationError("El kilometraje no puede ser negativo")
 
     # Buscar usuario existente por correo o cédula
-    usuario = db.query(Usuario).filter(Usuario.correo == correo_limpio).first()
+    usuario = scoped_query(db, Usuario).filter(Usuario.correo == correo_limpio).first()
     if not usuario and payload.cedula:
-        usuario = db.query(Usuario).filter(Usuario.cedula == payload.cedula.strip()).first()
+        usuario = scoped_query(db, Usuario).filter(Usuario.cedula == payload.cedula.strip()).first()
+
+    vehiculo = VehiculoService.obtener_por_placa(db, placa_limpia)
+    if vehiculo and (not usuario or vehiculo.id_usuario != usuario.id_usuario):
+        raise ConflictError("La placa ya está asociada a otro propietario; revise los datos del cliente")
 
     if not usuario:
         base_username = correo_limpio.split("@")[0].replace(".", "_")
         username_candidato = base_username
         contador = 1
-        while db.query(Usuario).filter(Usuario.nombre_usuario == username_candidato).first():
+        while scoped_query(db, Usuario).filter(Usuario.nombre_usuario == username_candidato).first():
             username_candidato = f"{base_username}_{contador}"
             contador += 1
 
@@ -63,7 +75,6 @@ def crear_cuenta_rapida(payload: QuickAccountCreate, db: Session = Depends(get_d
         usuario = UsuarioService.registrar(db, nuevo_user_data, asignar_rol_cliente=True)
 
     # Buscar o crear vehículo
-    vehiculo = VehiculoService.obtener_por_placa(db, placa_limpia)
     if not vehiculo:
         vehiculo_in = VehiculoCreate(
             placa=placa_limpia,
@@ -80,6 +91,6 @@ def crear_cuenta_rapida(payload: QuickAccountCreate, db: Session = Depends(get_d
     v_dict = vehiculo.to_dict()
     return {
         "usuario": usuario.to_dict(include_roles=True),
-        "moto": v_dict,
+        "carro": v_dict,
         "vehiculo": v_dict,
     }

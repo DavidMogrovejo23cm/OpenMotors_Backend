@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -52,7 +53,7 @@ class UsuarioRolService:
     def asignar_rol(db: Session, id_usuario: int, id_rol: int, estado: int = 1) -> UsuarioRol:
         from app.modules.usuarios.models import Usuario
 
-        usuario = db.query(Usuario).filter(Usuario.id_usuario == id_usuario).first()
+        usuario = scoped_query(db, Usuario).filter(Usuario.id_usuario == id_usuario).first()
         if not usuario:
             raise BusinessValidationError(f"Usuario con ID {id_usuario} no encontrado")
 

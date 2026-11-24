@@ -16,6 +16,7 @@ env/
 *.db
 .env
 .env.local
+backups/
 
 # Local uploads & generated metrics
 static/uploads/*

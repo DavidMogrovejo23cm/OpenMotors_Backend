@@ -10,7 +10,7 @@ from app.core.database import Base, engine, SessionLocal
 from app.core.seeder import init_db_and_seed
 from app.modules.vehiculos.models import Vehiculo
 from app.modules.taller.models import Registro, Presupuesto, ItemPresupuesto, BitacoraReparacion
-from app.modules.inventario.models import Producto, Categoria
+from app.modules.inventario.models import Producto, Categoria, ReservaRepuesto
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +58,7 @@ def client():
         id_encargado=2,
         descripcion="Cambio de terminal de dirección y alineación",
         costo_total=70.0,
-        estado=3,  # Estado 3: Listo para cobro tras Proceso 9
+        estado=2,  # Finalizada, pendiente de cobro
         kilometraje=15000,
     )
     db.add(reg)
@@ -108,6 +108,8 @@ def client():
     )
     db.add(it_rep)
     db.add(it_mo)
+    db.flush()
+    db.add(ReservaRepuesto(id_registro=reg.id_registro, id_presupuesto=pres.id_presupuesto, id_item_presupuesto=it_rep.id_item, id_producto=prod.id_producto, cantidad=1, estado="RESERVADO"))
     db.commit()
     db.close()
 
@@ -148,7 +150,7 @@ def test_proceso_10_preparar_cobro_y_liquidacion(client: TestClient):
 
     assert data["id_nota_venta"] is not None
     assert "NV-" in data["numero_nota_venta"]
-    assert data["estado_pago"] == "PENDIENTE_PAGO"
+    assert data["estado_pago"] == "PENDIENTE"
     assert data["subtotal_repuestos"] == 40.0
     assert data["subtotal_mano_obra"] == 30.0
     assert data["descuento"] == 5.0
@@ -172,14 +174,12 @@ def test_proceso_11_1_pago_incompleto_retiene_vehiculo(client: TestClient):
         "monto_recibido": 50.0,
     }
     res = client.post("/api/notas-venta/1/confirmar-pago", json=payload, headers=headers)
-    assert res.status_code == 400
-    res_json = res.json()
-    error_msg = res_json.get("error") or res_json.get("detail", "")
-    assert "Proceso 11.1" in error_msg
-
-    # Verificar que la orden no cambió a pagada
+    assert res.status_code == 200
+    assert res.json()["estado_pago"] == "PARCIAL"
     reg = client.get("/api/registros/1", headers=headers).json()
-    assert reg["estado"] != 7
+    assert reg["estado"] == 2
+    assert reg["monto_pagado"] == 50.0
+    assert reg["saldo_pendiente"] == 15.0
 
 
 def test_procesos_11_12_13_14_confirmar_pago_y_emision_nota_venta(client: TestClient):
@@ -196,7 +196,7 @@ def test_procesos_11_12_13_14_confirmar_pago_y_emision_nota_venta(client: TestCl
 
     payload = {
         "metodo_pago": "TRANSFERENCIA",
-        "monto_recibido": 65.0,
+        "monto_recibido": 15.0,
         "numero_referencia": "TRANSF-BANCO-778899",
         "comprobante_url": "/images/pagos/comprobante_transf.jpg",
     }
@@ -206,7 +206,7 @@ def test_procesos_11_12_13_14_confirmar_pago_y_emision_nota_venta(client: TestCl
 
     assert data["exito"] is True
     assert data["estado_pago"] == "PAGADO"
-    assert data["estado_orden"] == 7  # Estado 7: PAGADO
+    assert data["estado_orden"] == 2  # Estado 7: PAGADO
     assert data["resumen_financiero"]["total_ingreso"] == 65.0
     assert data["resumen_financiero"]["ganancia_neta"] == 25.0
 

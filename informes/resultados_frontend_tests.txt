@@ -1,0 +1,20 @@
+
+> openmotors-frontend@0.0.0 test
+> node --experimental-strip-types --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: tests/estados-pagos.test.mjs
+ok 1 - tests/estados-pagos.test.mjs
+  ---
+  duration_ms: 70.64837
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 76.228689

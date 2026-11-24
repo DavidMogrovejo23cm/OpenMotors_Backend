@@ -83,7 +83,7 @@ def test_flujo_completo_hoja_recepcion(client: TestClient):
     assert "firma_cliente" in rec_data["faltantes"]
 
     # 3. Validar Proceso 2.1: Intentar avanzar la orden de taller a Estado 2 (Revisión) debe ser BLOQUEADO
-    patch_res = client.patch(f"/api/registros/{id_registro}/estado?estado=2", headers=headers)
+    patch_res = client.patch(f"/api/registros/{id_registro}/estado?estado=1", headers=headers)
     assert patch_res.status_code == 400
     assert "Proceso 2.1" in patch_res.text
 
@@ -108,6 +108,6 @@ def test_flujo_completo_hoja_recepcion(client: TestClient):
     assert validar_res.json()["puede_avanzar_fase_b"] is True
 
     # 6. Ahora que la recepción está completa, la orden SÍ debe poder avanzar a Estado 2
-    patch_ok = client.patch(f"/api/registros/{id_registro}/estado?estado=2", headers=headers)
+    patch_ok = client.patch(f"/api/registros/{id_registro}/estado?estado=1", headers=headers)
     assert patch_ok.status_code == 200
-    assert patch_ok.json()["estado"] == 2
+    assert patch_ok.json()["estado"] == 1

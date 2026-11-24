@@ -94,3 +94,22 @@ class ClienteCreate(BaseModel):
     direccion: Optional[str] = None
     ciudad: Optional[str] = None
 
+
+class UsuarioEstadoUpdate(BaseModel):
+    """Activación o suspensión lógica de una cuenta."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    activo: bool
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """Restablecimiento de contraseña directo por el administrador."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    nueva_contrasena: Optional[str] = Field(
+        default=None,
+        min_length=6,
+        max_length=128,
+        validation_alias=AliasChoices("nueva_contrasena", "nuevaContrasena"),
+    )
+

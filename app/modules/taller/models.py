@@ -44,6 +44,7 @@ class Registro(Base):
     id_registro = Column("id_registro", Integer, primary_key=True, index=True, autoincrement=True)
     fecha = Column("fecha", Date, nullable=False, default=date.today)
     fecha_entrega_estimada = Column("fecha_entrega_estimada", DateTime, nullable=True)
+    horas_estimadas = Column("horas_estimadas", Float, nullable=True)
     fecha_completado = Column("fecha_completado", DateTime, nullable=True)
     fecha_entregado = Column("fecha_entregado", DateTime, nullable=True)
     fecha_facturado = Column("fecha_facturado", DateTime, nullable=True)
@@ -55,7 +56,13 @@ class Registro(Base):
     id_tipo = Column("id_tipo", Integer, ForeignKey("tipo.id_tipo", ondelete="SET NULL"), nullable=True)
     id_factura = Column("id_factura", Integer, ForeignKey("facturas.id_factura", ondelete="SET NULL"), nullable=True, index=True)
     kilometraje = Column("kilometraje", Integer, nullable=True)
-    estado = Column("estado", Integer, nullable=False, default=1)
+    estado = Column("estado", Integer, nullable=False, default=0)
+    estado_pago = Column(String(20), nullable=False, default="PENDIENTE")
+    monto_pagado = Column(Float, nullable=False, default=0.0)
+    flujo_integrado = Column(Boolean, nullable=False, default=False)
+    estado_version = Column(Integer, nullable=False, default=1)
+    estado_legacy = Column(Integer, nullable=True)
+    revision_estado = Column(Boolean, nullable=False, default=False)
 
     vehiculo = relationship("Vehiculo", lazy="joined")
     encargado = relationship("Usuario", foreign_keys=[id_encargado], lazy="joined")
@@ -67,6 +74,7 @@ class Registro(Base):
             "id_registro": self.id_registro,
             "fecha": self.fecha.isoformat() if self.fecha else date.today().isoformat(),
             "fecha_entrega_estimada": self.fecha_entrega_estimada.isoformat() if self.fecha_entrega_estimada else None,
+            "horas_estimadas": round(float(self.horas_estimadas), 2) if self.horas_estimadas is not None else None,
             "fecha_completado": self.fecha_completado.isoformat() if self.fecha_completado else None,
             "fecha_entregado": self.fecha_entregado.isoformat() if self.fecha_entregado else None,
             "fecha_facturado": self.fecha_facturado.isoformat() if self.fecha_facturado else None,
@@ -78,7 +86,12 @@ class Registro(Base):
             "id_tipo": self.id_tipo,
             "id_factura": self.id_factura,
             "kilometraje": self.kilometraje if self.kilometraje is not None else (self.vehiculo.kilometraje if self.vehiculo else 0),
-            "estado": self.estado if self.estado is not None else 1,
+            "estado": self.estado if self.estado is not None else 0,
+            "estado_pago": self.estado_pago,
+            "monto_pagado": round(float(self.monto_pagado or 0), 2),
+            "saldo_pendiente": round(max(0, float(self.costo_total or 0) - float(self.monto_pagado or 0)), 2),
+            "revision_estado": self.revision_estado,
+            "estado_legacy": self.estado_legacy,
         }
 
 
@@ -92,6 +105,7 @@ class DiagnosticoVehiculo(Base):
     id_recepcion = Column("id_recepcion", Integer, ForeignKey("recepciones_vehiculo.id_recepcion", ondelete="SET NULL"), nullable=True, index=True)
     fecha = Column("fecha", DateTime, nullable=False, default=datetime.now)
     kilometraje_ingreso = Column("kilometraje_ingreso", Integer, nullable=True)
+    origen_diagnostico = Column(String(30), nullable=False, default="CRITERIO_TECNICO")
     escaner_utilizado = Column("escaner_utilizado", String(150), nullable=True)
     codigos_dtc = Column("codigos_dtc", String(2000), nullable=True)
     descripcion_escaner = Column("descripcion_escaner", String(2000), nullable=True)
@@ -122,6 +136,7 @@ class DiagnosticoVehiculo(Base):
             "id_recepcion": self.id_recepcion,
             "fecha": self.fecha.isoformat() if self.fecha else datetime.now().isoformat(),
             "kilometraje_ingreso": self.kilometraje_ingreso,
+            "origen_diagnostico": self.origen_diagnostico,
             "escaner_utilizado": self.escaner_utilizado,
             "codigos_dtc": self.codigos_dtc,
             "descripcion_escaner": self.descripcion_escaner,

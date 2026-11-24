@@ -22,8 +22,8 @@ class ProductoCreate(BaseModel):
     descripcion: str = ""
     costo: float = 0.0
     pvp: float = 0.0
-    stock: int = 0
-    stock_minimo: Optional[int] = Field(default=2, validation_alias=AliasChoices("stock_minimo", "stockMinimo"))
+    stock: int = Field(default=0, ge=0)
+    stock_minimo: Optional[int] = Field(default=2, ge=0, validation_alias=AliasChoices("stock_minimo", "stockMinimo"))
     duracion_estimada_km: Optional[int] = Field(default=None, validation_alias=AliasChoices("duracion_estimada_km", "duracionEstimadaKm"))
     ubicacion_bodega: Optional[str] = Field(default=None, validation_alias=AliasChoices("ubicacion_bodega", "ubicacionBodega"))
     id_categoria: int = Field(..., validation_alias=AliasChoices("id_categoria", "idCategoria"))
@@ -45,8 +45,8 @@ class ProductoUpdate(BaseModel):
     descripcion: Optional[str] = None
     costo: Optional[float] = None
     pvp: Optional[float] = None
-    stock: Optional[int] = None
-    stock_minimo: Optional[int] = Field(default=None, validation_alias=AliasChoices("stock_minimo", "stockMinimo"))
+    stock: Optional[int] = Field(default=None, ge=0)
+    stock_minimo: Optional[int] = Field(default=None, ge=0, validation_alias=AliasChoices("stock_minimo", "stockMinimo"))
     duracion_estimada_km: Optional[int] = Field(default=None, validation_alias=AliasChoices("duracion_estimada_km", "duracionEstimadaKm"))
     ubicacion_bodega: Optional[str] = Field(default=None, validation_alias=AliasChoices("ubicacion_bodega", "ubicacionBodega"))
     id_categoria: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_categoria", "idCategoria"))
@@ -102,6 +102,8 @@ class ContactoProveedorRequest(BaseModel):
 
 
 class EscaneoEntradaRequest(BaseModel):
+    id_registro: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_registro", "idRegistro"))
+    id_operacion: Optional[str] = Field(default=None, min_length=1, max_length=100)
     """Solicitud de ingreso a bodega escaneando con la cámara del celular."""
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -119,11 +121,12 @@ class EscaneoEntradaRequest(BaseModel):
     nombre: Optional[str] = None
     marca: Optional[str] = "Genérico"
     id_categoria: Optional[int] = Field(default=None, validation_alias=AliasChoices("id_categoria", "idCategoria"))
-    stock_minimo: Optional[int] = Field(default=2, validation_alias=AliasChoices("stock_minimo", "stockMinimo"))
+    stock_minimo: Optional[int] = Field(default=2, ge=0, validation_alias=AliasChoices("stock_minimo", "stockMinimo"))
     duracion_estimada_km: Optional[int] = Field(default=None, validation_alias=AliasChoices("duracion_estimada_km", "duracionEstimadaKm"))
 
 
 class EscaneoSalidaRequest(BaseModel):
+    id_operacion: Optional[str] = Field(default=None, min_length=1, max_length=100)
     """Solicitud de salida/despacho de bodega escaneando con la cámara del celular."""
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 

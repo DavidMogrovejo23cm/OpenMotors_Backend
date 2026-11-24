@@ -35,7 +35,7 @@ def client():
         id_encargado=2,
         descripcion="Cambio de kit de distribución y bandas",
         costo_total=180.0,
-        estado=2,
+        estado=1,
         kilometraje=28000,
     )
     db.add(reg)
@@ -164,7 +164,7 @@ def test_proceso_8_1_control_calidad_no_pasa_devuelve_al_mecanico_sin_costo(clie
     assert qc_res.status_code == 201
     qc_data = qc_res.json()
     assert qc_data["control"]["accion_tomada"] == "DEVUELTO_A_MECANICO"
-    assert qc_data["estado_orden"] == 2  # Continúa en reparación / reproceso
+    assert qc_data["estado_orden"] == 1  # Continúa en reparación / reproceso
 
 
 def test_proceso_8_y_9_control_calidad_aprobado_marca_listo_para_entrega(client: TestClient):
@@ -183,8 +183,8 @@ def test_proceso_8_y_9_control_calidad_aprobado_marca_listo_para_entrega(client:
     assert qc_res.status_code == 201
     qc_data = qc_res.json()
     assert qc_data["control"]["accion_tomada"] == "APROBADO_LISTO"
-    assert qc_data["estado_orden"] == 3  # Estado 3: Reparado / Listo para entrega (Proceso 9)
+    assert qc_data["estado_orden"] == 2  # Estado 3: Reparado / Listo para entrega (Proceso 9)
 
     reg = client.get("/api/registros/1", headers=headers).json()
-    assert reg["estado"] == 3
+    assert reg["estado"] == 2
     assert reg["fecha_completado"] is not None

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+import uuid
 import bcrypt
 import jwt
 from fastapi import HTTPException, Request, status
@@ -41,9 +42,9 @@ def verify_password(plain_password: str, hashed_password: Optional[str]) -> bool
 
 
 def create_access_token(
-    id_usuario: int, nombre_usuario: str, correo: str
+    id_usuario: int, nombre_usuario: str, correo: str, token_version: int = 1
 ) -> str:
-    """Genera un token JWT HS256 compatible con JwtUtil.java."""
+    """Genera un token JWT HS256 compatible con JwtUtil.java e incluye JTI y versión de sesión."""
     now = datetime.now(timezone.utc)
     exp = now + timedelta(minutes=settings.JWT_EXPIRATION_MINUTES)
     payload = {
@@ -51,6 +52,8 @@ def create_access_token(
         "id_usuario": id_usuario,
         "nombre_usuario": nombre_usuario,
         "correo": correo,
+        "jti": uuid.uuid4().hex,
+        "tv": int(token_version),
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }

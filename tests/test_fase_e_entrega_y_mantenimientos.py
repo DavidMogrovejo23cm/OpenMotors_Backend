@@ -39,7 +39,9 @@ def client():
         id_encargado=2,
         descripcion="Cambio de aceite de motor y filtro",
         costo_total=50.0,
-        estado=7,  # Estado 7: PAGADO
+        estado=2,
+        estado_pago="PAGADO",
+        monto_pagado=50.0,
         kilometraje=10000,
     )
     # Orden no pagada
@@ -48,7 +50,7 @@ def client():
         id_encargado=2,
         descripcion="Revisión de frenos pendiente de cobro",
         costo_total=80.0,
-        estado=3,  # Estado 3 pero aún NO pagada
+        estado=2,  # Finalizada pero aún no pagada
         kilometraje=10000,
     )
     db.add(reg_pagado)
@@ -147,7 +149,7 @@ def test_proceso_15_entrega_conforme_vehiculo_pagado(client: TestClient):
     data = res.json()
 
     assert data["exito"] is True
-    assert data["estado_orden"] == 4  # Estado 4: Entregado / Finalizado
+    assert data["estado_orden"] == 3  # Estado 4: Entregado / Finalizado
     assert data["entrega"]["kilometraje_salida"] == 10005
     assert data["entrega"]["persona_recibe"] == "Dagumo"
 

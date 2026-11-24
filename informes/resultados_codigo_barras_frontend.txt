@@ -1,0 +1,82 @@
+TAP version 13
+# Subtest: lee una etiqueta, conserva ceros y apaga la cámara antes de entregar el código
+ok 1 - lee una etiqueta, conserva ceros y apaga la cámara antes de entregar el código
+  ---
+  duration_ms: 3.883349
+  type: 'test'
+  ...
+# Subtest: no altera ni convierte códigos alfanuméricos Code 128
+ok 2 - no altera ni convierte códigos alfanuméricos Code 128
+  ---
+  duration_ms: 1.341383
+  type: 'test'
+  ...
+# Subtest: cuadros vacíos continúan leyendo; detener cancela el siguiente cuadro
+ok 3 - cuadros vacíos continúan leyendo; detener cancela el siguiente cuadro
+  ---
+  duration_ms: 0.474147
+  type: 'test'
+  ...
+# Subtest: cerrar mientras se solicita permiso libera el flujo que llega tarde
+ok 4 - cerrar mientras se solicita permiso libera el flujo que llega tarde
+  ---
+  duration_ms: 0.478897
+  type: 'test'
+  ...
+# Subtest: cerrar durante una detección impide callbacks y lecturas posteriores
+ok 5 - cerrar durante una detección impide callbacks y lecturas posteriores
+  ---
+  duration_ms: 0.465792
+  type: 'test'
+  ...
+# Subtest: muestra un error útil sin abrir cámara: HTTP sin seguridad
+ok 6 - muestra un error útil sin abrir cámara: HTTP sin seguridad
+  ---
+  duration_ms: 0.453576
+  type: 'test'
+  ...
+# Subtest: muestra un error útil sin abrir cámara: navegador no compatible
+ok 7 - muestra un error útil sin abrir cámara: navegador no compatible
+  ---
+  duration_ms: 0.114102
+  type: 'test'
+  ...
+# Subtest: muestra un error útil sin abrir cámara: sin API de cámara
+ok 8 - muestra un error útil sin abrir cámara: sin API de cámara
+  ---
+  duration_ms: 0.120884
+  type: 'test'
+  ...
+# Subtest: rechaza dispositivos que solo leen QR sin abrir la cámara
+ok 9 - rechaza dispositivos que solo leen QR sin abrir la cámara
+  ---
+  duration_ms: 0.414218
+  type: 'test'
+  ...
+# Subtest: fallo al reproducir video libera la cámara
+ok 10 - fallo al reproducir video libera la cámara
+  ---
+  duration_ms: 0.417074
+  type: 'test'
+  ...
+# Subtest: error del detector informa el fallo y detiene el stream
+ok 11 - error del detector informa el fallo y detiene el stream
+  ---
+  duration_ms: 1.210632
+  type: 'test'
+  ...
+# Subtest: permisos denegados no dejan recursos y ofrecen instrucciones
+ok 12 - permisos denegados no dejan recursos y ofrecen instrucciones
+  ---
+  duration_ms: 0.295835
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15.515771

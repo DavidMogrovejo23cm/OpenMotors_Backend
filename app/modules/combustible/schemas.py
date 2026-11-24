@@ -7,7 +7,7 @@ class CargaCombustibleCreate(BaseModel):
 
     id_vehiculo: int = Field(
         ...,
-        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_moto", "idMoto"),
+        validation_alias=AliasChoices("id_vehiculo", "idVehiculo", "id_carro", "idCarro"),
     )
     placa: Optional[str] = None
     fecha: Optional[str] = None

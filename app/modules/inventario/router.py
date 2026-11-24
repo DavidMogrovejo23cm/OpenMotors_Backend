@@ -182,6 +182,7 @@ def registrar_entrada_kardex(payload: EscaneoEntradaRequest, db: Session = Depen
     Registra el INGRESO de stock escaneando el código de barras con el celular (Procesos Inv-1 a Inv-2).
     Suma unidades al inventario, actualiza costo y registra el comprobante de proveedor.
     """
+    payload.id_usuario = db.info["actor"].id_usuario
     return KardexService.registrar_entrada(db, payload)
 
 
@@ -191,6 +192,7 @@ def registrar_salida_kardex(payload: EscaneoSalidaRequest, db: Session = Depends
     Registra la SALIDA/DESPACHO de repuestos escaneando con el celular (Procesos Inv-3 a Inv-6).
     Valida stock disponible, resta unidades, vincula con orden de taller y genera alerta si cae al mínimo.
     """
+    payload.id_usuario = db.info["actor"].id_usuario
     return KardexService.registrar_salida(db, payload)
 
 
@@ -235,6 +237,7 @@ def subir_factura_proveedor_movil(archivo: UploadFile = File(...)):
 @reservas_router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def reservar_repuesto_individual(payload: ReservaRepuestoCreate, db: Session = Depends(get_db)):
     """Reserva individual de un repuesto para una orden de trabajo (Proceso 6 / Inv-4)."""
+    payload.id_usuario = db.info["actor"].id_usuario
     return ReservaRepuestoService.reservar_item(db, payload)
 
 
@@ -248,6 +251,7 @@ def reservar_repuestos_de_presupuesto(
     Reserva en bodega todos los repuestos aprobados en el presupuesto para la orden (Proceso 6).
     Evita la sobreventa o uso en otros vehículos.
     """
+    id_usuario = db.info["actor"].id_usuario
     return ReservaRepuestoService.reservar_presupuesto_aprobado(db, id_presupuesto, id_usuario)
 
 
@@ -293,7 +297,7 @@ def liberar_reserva_repuesto(
     Se usa si la orden se cancela antes del cobro o instalación.
     """
     motivo = payload.motivo if payload else None
-    id_usuario = payload.id_usuario if payload else None
+    id_usuario = db.info["actor"].id_usuario
     return ReservaRepuestoService.liberar_reserva(db, id_reserva, motivo=motivo, id_usuario=id_usuario)
 
 
@@ -307,6 +311,7 @@ def retirar_repuesto_para_instalacion(
     El mecánico retira el repuesto para instalarlo en el vehículo (Proceso 7).
     Resta del stock físico y genera la salida correspondiente en Kardex.
     """
+    id_usuario = db.info["actor"].id_usuario
     return ReservaRepuestoService.retirar_repuesto_reservado(db, id_reserva, id_usuario=id_usuario)
 
 

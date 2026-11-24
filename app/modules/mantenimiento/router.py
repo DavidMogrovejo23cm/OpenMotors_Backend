@@ -1,3 +1,4 @@
+from app.core.access_scope import scoped_query
 from typing import Optional
 from fastapi import APIRouter, Depends, Response, Query, status
 from fastapi.responses import JSONResponse
@@ -45,7 +46,7 @@ def actualizar_parametro(id_parametro: int, payload: ParametroUpdate, db: Sessio
 # ==========================================
 
 @mantenimientos_router.get("/vehiculo/{id_vehiculo}")
-@mantenimientos_router.get("/moto/{id_vehiculo}", include_in_schema=False)
+@mantenimientos_router.get("/carro/{id_vehiculo}", include_in_schema=False)
 def listar_mantenimientos_vehiculo(id_vehiculo: int, db: Session = Depends(get_db)):
     regs = MantenimientoService.listar_por_vehiculo(db, id_vehiculo)
     return [r.to_dict() for r in regs]
@@ -61,7 +62,7 @@ def registrar_mantenimiento(payload: MantenimientoRegistrarRequest, db: Session 
 
 
 @mantenimientos_router.delete("/vehiculo/{id_vehiculo}/{tipo}", status_code=status.HTTP_204_NO_CONTENT)
-@mantenimientos_router.delete("/moto/{id_vehiculo}/{tipo}", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
+@mantenimientos_router.delete("/carro/{id_vehiculo}/{tipo}", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
 def eliminar_mantenimiento(id_vehiculo: int, tipo: str, db: Session = Depends(get_db)):
     MantenimientoService.eliminar_por_vehiculo_y_tipo(db, id_vehiculo, tipo)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -72,11 +73,11 @@ def eliminar_mantenimiento(id_vehiculo: int, tipo: str, db: Session = Depends(ge
 # ==========================================
 
 @alertas_router.get("/vehiculo/{id_vehiculo}")
-@alertas_router.get("/moto/{id_vehiculo}", include_in_schema=False)
+@alertas_router.get("/carro/{id_vehiculo}", include_in_schema=False)
 def obtener_estado_mantenimiento(id_vehiculo: int, db: Session = Depends(get_db)):
     from app.modules.vehiculos.models import Vehiculo
 
-    vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
+    vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
     if not vehiculo:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     return AlertaMantenimientoService.calcular_estado(db, vehiculo)
@@ -86,7 +87,7 @@ def obtener_estado_mantenimiento(id_vehiculo: int, db: Session = Depends(get_db)
 def verificar_y_alertar(id_vehiculo: int, db: Session = Depends(get_db)):
     from app.modules.vehiculos.models import Vehiculo
 
-    vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
+    vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
     if not vehiculo:
         return JSONResponse(status_code=404, content={"error": "Vehículo no encontrado"})
     estados = AlertaMantenimientoService.verificar_y_enviar_alertas(db, vehiculo)
@@ -98,7 +99,7 @@ def verificar_y_alertar(id_vehiculo: int, db: Session = Depends(get_db)):
 
 
 @alertas_router.get("/vehiculo/{id_vehiculo}/semaforo")
-@alertas_router.get("/moto/{id_vehiculo}/semaforo", include_in_schema=False)
+@alertas_router.get("/carro/{id_vehiculo}/semaforo", include_in_schema=False)
 def obtener_semaforo_desgaste_proceso_15_1_y_16(id_vehiculo: int, db: Session = Depends(get_db)):
     """
     Proceso 15.1 y Proceso 16:
@@ -109,7 +110,7 @@ def obtener_semaforo_desgaste_proceso_15_1_y_16(id_vehiculo: int, db: Session = 
     """
     from app.modules.vehiculos.models import Vehiculo
 
-    vehiculo = db.query(Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
+    vehiculo = scoped_query(db, Vehiculo).filter(Vehiculo.id_vehiculo == id_vehiculo).first()
     if not vehiculo:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     estados = AlertaMantenimientoService.calcular_estado(db, vehiculo)

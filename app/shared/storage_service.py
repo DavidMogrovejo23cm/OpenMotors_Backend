@@ -116,7 +116,7 @@ class StorageService:
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_path = dest_dir / nombre_archivo
         dest_path.write_bytes(content)
-        return f"/images/uploads/{ruta}"
+        return f"/static/uploads/{ruta}"
 
     def subir_imagen_usuario(self, file: UploadFile, content: bytes) -> str:
         return self.subir_archivo(file, content, "usuarios/perfil/")
@@ -132,6 +132,10 @@ class StorageService:
 
     def upload_file(self, file: UploadFile, carpeta: str, prefix: str = "") -> str:
         content = file.file.read()
+        valid, message = self.validar_imagen(file, content)
+        if not valid:
+            from app.core.exceptions import BusinessValidationError
+            raise BusinessValidationError(message)
         folder = carpeta.strip("/") + "/"
         return self.subir_archivo(file, content, folder)
 

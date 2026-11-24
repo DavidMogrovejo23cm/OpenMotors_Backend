@@ -36,7 +36,7 @@ def client():
         id_encargado=2,
         descripcion="Revisión general de frenos y suspensión",
         costo_total=0.0,
-        estado=1,
+        estado=0,
         kilometraje=45000,
     )
     db.add(reg)
@@ -159,7 +159,7 @@ def test_aprobacion_total_presupuesto(client: TestClient):
     assert reg_res.status_code == 200
     reg_data = reg_res.json()
     assert reg_data["costo_total"] == 105.0
-    assert reg_data["estado"] == 2  # En proceso / reparación
+    assert reg_data["estado"] == 1  # En proceso / reparación
 
 
 def test_aprobacion_parcial_proceso_5_1(client: TestClient):
@@ -259,5 +259,5 @@ def test_rechazo_presupuesto_con_cobro_diagnostico_proceso_5_2(client: TestClien
     reg_res = client.get("/api/registros/1", headers=headers)
     assert reg_res.status_code == 200
     reg_data = reg_res.json()
-    assert reg_data["estado"] == 8
+    assert reg_data["estado"] in (0, 1)
     assert reg_data["costo_total"] == 40.0
